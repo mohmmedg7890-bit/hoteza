@@ -215,3 +215,28 @@ class ConcurrencyCase(TransactionTestCase):
             finally:connection.close()
         with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(attempt,range(2)))
         self.assertEqual(sorted(results),['created','rejected']);self.assertEqual(Reservation.objects.count(),1)
+
+class BootstrapCase(TestCase):
+    def test_demo_bootstrap_keeps_password_and_data_on_restart(self):
+        import os
+        password = 'Trial-Strong!Pass_9274'
+        out = io.StringIO()
+        with patch.dict(os.environ, {'INITIAL_ADMIN_USERNAME':'trial-owner','INITIAL_ADMIN_PASSWORD':password,'BOOTSTRAP_DEMO':'1'}):
+            call_command('bootstrap_owner', stdout=out)
+        user = get_user_model().objects.get(username='trial-owner')
+        self.assertTrue(user.check_password(password))
+        self.assertEqual(Property.objects.count(), 2)
+        self.assertEqual(Unit.objects.count(), 30)
+        self.assertNotIn(password, out.getvalue())
+        with patch.dict(os.environ, {'INITIAL_ADMIN_USERNAME':'trial-owner','INITIAL_ADMIN_PASSWORD':'Different-Strong!Pass_273','BOOTSTRAP_DEMO':'1'}):
+            call_command('bootstrap_owner', stdout=out)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password(password))
+        self.assertEqual(Unit.objects.count(), 30)
+
+    def test_bootstrap_rejects_weak_secret_without_creating_account(self):
+        import os
+        with patch.dict(os.environ, {'INITIAL_ADMIN_USERNAME':'owner','INITIAL_ADMIN_PASSWORD':'123','BOOTSTRAP_DEMO':'1'}):
+            with self.assertRaises(CommandError):
+                call_command('bootstrap_owner', stdout=io.StringIO())
+        self.assertEqual(get_user_model().objects.count(), 0)

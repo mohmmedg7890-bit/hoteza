@@ -1,0 +1,36 @@
+# Trial only. Review Render's current Free limits before deploying.
+services:
+  - type: web
+    name: hoteza-demo
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh deploy/render-start.sh
+    healthCheckPath: /health/
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: DEBUG
+        value: "0"
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hoteza-demo-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: INITIAL_ADMIN_USERNAME
+        value: owner
+      - key: INITIAL_ADMIN_PASSWORD
+        sync: false
+      - key: BOOTSTRAP_DEMO
+        value: "1"
+databases:
+  - name: hoteza-demo-db
+    plan: free
+    region: frankfurt
+    databaseName: hoteza
+    user: hoteza
+    postgresMajorVersion: "17"
+    ipAllowList: []
