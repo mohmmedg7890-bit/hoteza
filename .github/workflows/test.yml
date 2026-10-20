@@ -1,0 +1,52 @@
+name: Hoteza tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: hoteza
+          POSTGRES_PASSWORD: ci-only-password
+          POSTGRES_DB: hoteza
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U hoteza -d hoteza"
+          --health-interval 10s --health-timeout 5s --health-retries 10
+    env:
+      DEBUG: '1'
+      DATABASE_URL: postgresql://hoteza:ci-only-password@localhost:5432/hoteza
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y fonts-dejavu-core
+      - run: pip install -r requirements.txt
+      - run: python manage.py check
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py test pms --verbosity 2
+      - run: node --check static/app.js
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: pip install -r requirements.txt
+      - run: npm install --no-save playwright@1.62.1
+      - run: npx playwright install --with-deps chromium
+      - run: node tests/browser_smoke.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: browser-screenshots
+          path: test-results/

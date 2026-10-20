@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+*.pyc
+*.sqlite3
+*.sqlite3-*
+staticfiles/
+backups/
+test-results/
+node_modules/
