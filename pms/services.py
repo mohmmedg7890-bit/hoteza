@@ -48,9 +48,9 @@ def owned(model, prop, pk):
         raise RuleError('السجل غير موجود في منشأتك')
 
 def balance(r):
-    sums = r.charges.aggregate(net=Sum('net'),tax=Sum('tax'))
-    net, tax = sums['net'] or 0, sums['tax'] or 0
-    paid = r.payments.aggregate(n=Sum('amount'))['n'] or 0
+    charges=list(r.charges.all()); payments=list(r.payments.all())
+    net, tax = sum(c.net for c in charges),sum(c.tax for c in charges)
+    paid = sum(p.amount for p in payments)
     return {'net':net,'tax':tax,'total':net+tax,'paid':paid,'balance':net+tax-paid}
 
 def dates(start, end):

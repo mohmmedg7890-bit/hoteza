@@ -2,7 +2,7 @@ import io,json,uuid,zipfile,tempfile
 from pathlib import Path
 from datetime import timedelta
 from unittest.mock import patch
-from django.test import TestCase,Client,TransactionTestCase
+from django.test import TestCase,Client,TransactionTestCase,override_settings
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -179,6 +179,23 @@ class PMSCase(TestCase):
         anon=Client();self.assertEqual(anon.get('/login/').status_code,200);self.assertEqual(anon.get('/password-reset/').status_code,200)
         self.assertEqual(self.client.get('/app/').status_code,200);self.assertEqual(self.client.get('/logout/').status_code,405)
         self.assertEqual(self.client.post('/logout/').status_code,302)
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_password_recovery_sends_valid_link(self):
+        from django.core import mail
+        from django.utils.http import urlsafe_base64_encode
+        from django.utils.encoding import force_bytes
+        from django.contrib.auth.tokens import default_token_generator
+        self.owner.email='owner@example.test';self.owner.save()
+        response=Client().post('/password-reset/',{'email':self.owner.email})
+        self.assertEqual(response.status_code,302);self.assertEqual(len(mail.outbox),1)
+        uid=urlsafe_base64_encode(force_bytes(self.owner.pk));token=default_token_generator.make_token(self.owner)
+        self.assertIn(f'/reset/{uid}/',mail.outbox[0].body)
+        client=Client();response=client.get(f'/reset/{uid}/{token}/');self.assertEqual(response.status_code,302)
+        response=client.post(response.url,{'new_password1':'New-Reset!8265*word','new_password2':'New-Reset!8265*word'})
+        self.assertEqual(response.status_code,302);self.owner.refresh_from_db();self.assertTrue(self.owner.check_password('New-Reset!8265*word'))
+    def test_change_password_keeps_current_session(self):
+        response=self.api('profile',{'old_password':'Test-owner!926','password':'New-Profile!8265*word'})
+        self.assertEqual(response.status_code,200);self.assertEqual(self.client.get('/api/state/').status_code,200)
 
 class ConcurrencyCase(TransactionTestCase):
     def test_two_workers_cannot_double_book(self):
@@ -195,6 +212,6 @@ class ConcurrencyCase(TransactionTestCase):
             try:
                 perform(owner,p.pk,'reservation_create',{'guest':g.pk,'unit':u.pk,'arrival':str(today),'departure':str(today+timedelta(days=1)),'rate':150},str(uuid.uuid4()));return 'created'
             except RuleError:return 'rejected'
-            finally:close_old_connections()
+            finally:connection.close()
         with ThreadPoolExecutor(max_workers=2) as pool:results=list(pool.map(attempt,range(2)))
         self.assertEqual(sorted(results),['created','rejected']);self.assertEqual(Reservation.objects.count(),1)

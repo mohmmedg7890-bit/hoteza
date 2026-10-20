@@ -8,3 +8,4 @@ staticfiles/
 backups/
 test-results/
 node_modules/
+.local-initialized
