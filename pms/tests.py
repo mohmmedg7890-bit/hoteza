@@ -133,6 +133,15 @@ class PMSCase(TestCase):
         self.op('invoice',{'id':r.pk});self.op('payment',{'id':r.pk,'amount':'155.25','method':'نقد'})
         self.op('checkout',{'id':r.pk,'allow_same_day':True});r.refresh_from_db();self.assertEqual(r.status,'checked_out')
 
+    def test_add_remove_units_preserves_guest_balance_and_billed_lines(self):
+        r=self.book(persons=2);initial=balance(r)
+        self.op('unit_add',{'id':r.pk,'unit':self.v.pk,'rate':100});self.assertEqual(balance(r)['net'],75000)
+        allocation=r.allocations.get(unit=self.v);self.op('unit_remove',{'id':r.pk,'allocation':allocation.pk})
+        self.assertEqual(balance(r),initial);self.assertEqual(r.allocations.count(),1)
+        with self.assertRaises(RuleError):self.op('unit_remove',{'id':r.pk,'allocation':r.allocations.first().pk})
+        self.op('unit_add',{'id':r.pk,'unit':self.v.pk,'rate':100});self.op('invoice',{'id':r.pk})
+        with self.assertRaises(RuleError):self.op('unit_remove',{'id':r.pk,'allocation':r.allocations.get(unit=self.v).pk})
+
     def test_booking_amounts_and_tax(self):
         r=self.book();self.assertEqual(balance(r),{'net':45000,'tax':6750,'total':51750,'paid':0,'balance':51750});self.assertEqual(r.allocations.count(),1)
     def test_overlap_rejected_without_partial_guest_charge(self):

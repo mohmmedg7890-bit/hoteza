@@ -4,7 +4,7 @@ Hoteza keeps its existing Django + PostgreSQL backend and Arabic JavaScript SPA.
 
 ## Pricing and lifecycle
 - Money is stored in minor currency units. Daily and monthly rates are per unit. Monthly cycles follow the original arrival day, clamped to the calendar month's last day; partial cycles are prorated across that cycle's days, with minor-unit remainders distributed deterministically. Tax follows the property's configured percentage, rounded per charge line.
-- All unit availability/capacity checks occur in the existing property-locked transaction. Confirmed reservations can add/change/remove units before financial documents exist. In-house reservations support a selected unit transfer. Financial edits after invoicing use linked correction documents.
+- All unit availability/capacity checks occur in the existing property-locked transaction. Confirmed reservations can add/change/remove units before financial documents exist. In-house reservations support a selected unit transfer and adding a unit. Owners can remove a remaining unit only if capacity remains sufficient and its future charges have not been invoiced; existing billed lines are never deleted. Financial edits after invoicing use linked correction documents.
 - Discounts apply to the current room charges before tax, as percentage or fixed amount. Renewal/extensions do not automatically repeat an old discount. Expense vouchers are property outflows, not guest payments, and never reduce guest debt.
 - Early same-day departure retains a one-night charge. An owner can settle future nights, issue invoices/refunds where necessary, then confirm same-day checkout. Existing debt, invoicing and authorization rules remain enforced.
 

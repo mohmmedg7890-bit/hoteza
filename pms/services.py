@@ -118,7 +118,7 @@ def reservation_units(prop,data,default_unit,persons,start,end,reservation=None)
     require(0<persons<=sum(unit.capacity for unit,rate in result),'إجمالي سعة الوحدات غير كافٍ')
     return result
 
-OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save'}
+OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove'}
 
 @transaction.atomic
 def perform(user, prop_id, action, d, key):
@@ -170,7 +170,7 @@ def perform(user, prop_id, action, d, key):
         if d.get('discount_value'):apply_discount(r,d.get('discount_type','fixed'),d['discount_value'],require)
         contract=issue_contract(r,user)
         result={'id':r.pk,'contract':contract.pk}
-    elif action in {'reservation_edit','checkin','checkout','cancel','no_show','extend','move','payment','refund','charge','invoice','adjustment','early_departure','discount','contract_issue','renew_settings','auto_extend','contract_share'}:
+    elif action in {'reservation_edit','checkin','checkout','cancel','no_show','extend','move','payment','refund','charge','invoice','adjustment','early_departure','discount','contract_issue','renew_settings','auto_extend','contract_share','unit_add','unit_remove'}:
         r=owned(Reservation,prop,d.get('id'))
         a=r.allocations.order_by('start','id').last()
         if action == 'reservation_edit':
@@ -281,6 +281,27 @@ def perform(user, prop_id, action, d, key):
             snap={**ref.snapshot,'lines':[{'description':reason,'date':str(timezone.localdate()),'net':sign*(amount-tax),'tax':sign*tax}]}
             inv=Invoice.objects.create(reservation=r,kind=mode,reference=ref,total=sign*amount,snapshot=snap)
             Charge.objects.create(reservation=r,service_date=timezone.localdate(),description=reason,net=sign*(amount-tax),tax=sign*tax,kind='adjustment',invoice=inv);result={'invoice':inv.pk}
+        elif action=='unit_add':
+            require(r.status in ['confirmed','checked_in'],'الحجز مغلق')
+            unit=owned(Unit,prop,d.get('unit'));start=r.arrival if r.status=='confirmed' else max(r.arrival,timezone.localdate())
+            require(start<r.departure,'مدد الإقامة قبل إضافة وحدة');require(not r.allocations.filter(unit=unit,end=r.departure).exists(),'الوحدة موجودة في الحجز')
+            available(unit,start,r.departure,1,r)
+            if r.status=='checked_in':require(unit.cleaning=='ready','الوحدة غير جاهزة للتسكين')
+            rate=money(d.get('rate',unit.rate/100));require(r.rate+rate<=2147483647,'إجمالي السعر أكبر من المسموح')
+            Allocation.objects.create(reservation=r,unit=unit,start=start,end=r.departure,rate=rate);nightly(r,start,r.departure,rate,unit)
+            r.rate+=rate;r.save();issue_contract(r,user)
+        elif action=='unit_remove':
+            require(r.status in ['confirmed','checked_in'],'الحجز مغلق')
+            current=r.allocations.filter(end=r.departure).select_related('unit');require(current.count()>1,'لا يمكن حذف آخر وحدة من الحجز؛ استخدم الإلغاء أو المغادرة')
+            allocation=current.filter(pk=d.get('allocation')).first();require(allocation is not None,'اختر تخصيص وحدة قائم')
+            require(sum(x.unit.capacity for x in current if x.pk!=allocation.pk)>=r.persons,'سعة الوحدات المتبقية لا تكفي عدد النزلاء')
+            cut=r.arrival if r.status=='confirmed' else max(r.arrival,timezone.localdate())
+            future=r.charges.filter(unit=allocation.unit,service_date__gte=cut)
+            require(not future.filter(invoice__isnull=False).exists(),'رسوم الوحدة مفوترة؛ يلزم تصحيح الفاتورة قبل حذفها')
+            future.delete()
+            if allocation.start<cut:allocation.end=cut;allocation.save()
+            else:allocation.delete()
+            r.rate=sum(x.rate if x.rate is not None else r.rate for x in r.allocations.filter(end=r.departure));r.save();issue_contract(r,user)
         elif action=='discount':
             require(r.status in ['confirmed','checked_in'],'الحجز مغلق');apply_discount(r,d.get('discount_type','fixed'),d.get('discount_value'),require)
         elif action=='contract_issue':
