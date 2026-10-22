@@ -4,12 +4,24 @@ from decimal import Decimal
 from django.conf import settings
 from django.http import HttpResponse
 from django.utils import timezone
-from .models import Reservation, Invoice, Payment, Guest
+from .models import Expense,Contract,Reservation, Invoice, Payment, Guest
 from .services import RuleError, balance, report, day
 
 def cash(n):return f'{Decimal(n)/100:,.2f}'
 
 def document_data(prop,kind,pk):
+    if kind=='contract':
+        c=Contract.objects.filter(pk=pk,reservation__property=prop).first()
+        if not c:raise RuleError('العقد غير موجود')
+        s=c.snapshot;p=s['property'];g=s['guest']
+        rows=[['رقم العقد',f'CTR-{prop.pk}-{c.pk:06}'],['المنشأة',p['name']],['العنوان',p['address']],['السجل التجاري',p.get('commercial_registration','')],['الرقم الضريبي',p['tax_number']],['الترخيص السياحي',p.get('tourism_license','')],['الهاتف',p.get('phone','')],['الجوال',p.get('mobile','')],['الرمز البريدي',p.get('postal_code','')],['مرجع الحجز',s['reference']],['النزيل',g['name']],['الجوال',g['phone']],['نوع الهوية',g.get('id_type','')],['رقم الهوية',g.get('id_number','')],['الجنسية',g.get('nationality','')],['الدخول',s['arrival']],['الخروج',s['departure']],['نوع الإيجار','شهري' if s['rental_type']=='monthly' else 'يومي'],['المجموع الجزئي',cash(s['net'])],['الضريبة',cash(s['tax'])],['الإجمالي',cash(s['total'])]]
+        rows += [['الوحدة','النوع','الطابق','من','إلى']]+[[u['number'],u['kind'],u['floor'],u['from'],u['to']] for u in s['units']]
+        rows += [['الشروط والأحكام' if s['terms_complete'] else 'مسودة — الشروط الأربعة عشر لم تكتمل']]+[[str(i+1),term] for i,term in enumerate(s['terms'])]+[['توقيع العميل','________________'],['توقيع الموظف',s['employee']+' ________________']]
+        return 'عقد إيجار — '+('نسخة للشروط المسجلة' if s['terms_complete'] else 'مسودة غير مكتملة'),rows
+    if kind=='expense':
+        e=Expense.objects.filter(pk=pk,property=prop).select_related('user').first()
+        if not e:raise RuleError('سند الصرف غير موجود')
+        return 'سند صرف',[['المنشأة',prop.name],['رقم السند',f'EXP-{e.pk:06}'],['المستفيد',e.beneficiary],['البيان',e.description],['المبلغ',cash(e.amount)],['طريقة الدفع',e.method],['التاريخ',timezone.localtime(e.created_at).isoformat()],['المستخدم',e.user.username],['مرجع الحجز',e.reservation_id or 'غير مرتبط'],['ملاحظة','سند صرف من المنشأة؛ لا يخفض مديونية النزيل']]
     if kind=='invoice':
         obj=Invoice.objects.filter(pk=pk,reservation__property=prop).first()
         if not obj:raise RuleError('المستند غير موجود')

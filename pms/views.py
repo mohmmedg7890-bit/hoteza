@@ -11,7 +11,7 @@ from django.http import JsonResponse, HttpResponse
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from django.views.decorators.http import require_POST, require_GET
-from .models import Property, Membership, Unit, Guest, Reservation, Block, Invoice, Payment, Audit
+from .models import Property, Membership, Unit, Guest, Reservation, Block, Invoice, Payment, Audit, Expense, Contract
 from .services import perform, balance, report, day, RuleError
 
 @require_GET
@@ -80,14 +80,14 @@ def state(request):
     m=membership(request);p=m.property;today=timezone.localdate()
     reservations=[]
     for r in Reservation.objects.filter(property=p).select_related('guest').prefetch_related('allocations__unit','charges','payments','invoices').order_by('-id'):
-        allocations=[{'id':a.pk,'unit':a.unit_id,'number':a.unit.number,'start':str(a.start),'end':str(a.end)} for a in r.allocations.all()]
-        reservations.append({'id':r.pk,'guest':r.guest_id,'guest_name':r.guest.name,'phone':r.guest.phone,'arrival':str(r.arrival),'departure':str(r.departure),'arrival_time':r.arrival_time.strftime('%H:%M'),'departure_time':r.departure_time.strftime('%H:%M'),'persons':r.persons,'rate':r.rate,'status':r.status,'source':r.source,'allocations':allocations,**balance(r),'charges':[{'id':c.pk,'date':str(c.service_date),'description':c.description,'net':c.net,'tax':c.tax,'invoice':c.invoice_id} for c in r.charges.all()],'payments':[{'id':x.pk,'amount':x.amount,'method':x.method,'reference':x.reference,'date':timezone.localtime(x.created_at).isoformat()} for x in r.payments.all()],'invoices':[{'id':i.pk,'kind':i.kind,'total':i.total,'reference':i.reference_id,'date':str(i.created_at.date())} for i in r.invoices.all()]})
-    return JsonResponse({'today':str(today),'user':request.user.username,'superuser':request.user.is_superuser,'role':m.role,'property':{'id':p.pk,'name':p.name,'address':p.address,'tax_number':p.tax_number,'tax_rate':str(p.tax_rate),'currency':p.currency,'subscription_until':str(p.subscription_until or '')},'units':list(Unit.objects.filter(property=p).values()),'guests':[{**{f.name:getattr(g,f.name) for f in Guest._meta.fields if f.name not in ['photo','property','profile']},**g.profile,'has_photo':bool(g.photo)} for g in Guest.objects.filter(property=p)],'reservations':reservations,'blocks':list(Block.objects.filter(unit__property=p).values()),'users':list(Membership.objects.filter(property=p).values('id','user__username','role')) if m.role=='owner' else [],'audit':list(Audit.objects.filter(property=p).order_by('-id').values('id','user__username','action','details','created_at')[:200]) if m.role=='owner' else [],'report':report(p,today,today+timedelta(days=1))})
+        allocations=[{'id':a.pk,'unit':a.unit_id,'number':a.unit.number,'kind':a.unit.kind,'floor':a.unit.floor,'rate':a.rate if a.rate is not None else r.rate,'start':str(a.start),'end':str(a.end)} for a in r.allocations.all()]
+        reservations.append({'id':r.pk,'guest':r.guest_id,'guest_name':r.guest.name,'phone':r.guest.phone,'arrival':str(r.arrival),'departure':str(r.departure),'arrival_time':r.arrival_time.strftime('%H:%M'),'departure_time':r.departure_time.strftime('%H:%M'),'persons':r.persons,'rate':r.rate,'status':r.status,'source':r.source,'rental_type':r.rental_type,'visit_purpose':r.visit_purpose,'auto_extend':r.auto_extend,'reference':f'RES-{p.pk}-{r.pk:06}','contract':r.contracts.order_by('-id').values_list('id',flat=True).first(),'checked_in_at':r.checked_in_at,'checked_out_at':r.checked_out_at,'parts':__import__('pms.operations',fromlist=['financial_parts']).financial_parts(r),'allocations':allocations,**balance(r),'charges':[{'id':c.pk,'date':str(c.service_date),'description':c.description,'net':c.net,'tax':c.tax,'invoice':c.invoice_id} for c in r.charges.all()],'payments':[{'id':x.pk,'amount':x.amount,'method':x.method,'reference':x.reference,'user':x.user.username,'date':timezone.localtime(x.created_at).isoformat()} for x in r.payments.all()],'invoices':[{'id':i.pk,'kind':i.kind,'total':i.total,'reference':i.reference_id,'date':str(i.created_at.date())} for i in r.invoices.all()]})
+    return JsonResponse({'today':str(today),'user':request.user.username,'superuser':request.user.is_superuser,'role':m.role,'property':{'id':p.pk,'name':p.name,'address':p.address,'tax_number':p.tax_number,'official':p.official,'contract_terms':p.contract_terms,'tax_rate':str(p.tax_rate),'currency':p.currency,'subscription_until':str(p.subscription_until or '')},'units':list(Unit.objects.filter(property=p).values()),'guests':[{**{f.name:getattr(g,f.name) for f in Guest._meta.fields if f.name not in ['photo','property','profile']},**g.profile,'has_photo':bool(g.photo)} for g in Guest.objects.filter(property=p)],'reservations':reservations,'expenses':list(Expense.objects.filter(property=p).values('id','reservation_id','amount','method','beneficiary','description','created_at','user__username')),'blocks':list(Block.objects.filter(unit__property=p).values()),'users':list(Membership.objects.filter(property=p).values('id','user__username','role')) if m.role=='owner' else [],'audit':list(Audit.objects.filter(property=p).order_by('-id').values('id','user__username','action','details','created_at')[:200]) if m.role=='owner' else [],'report':report(p,today,today+timedelta(days=1))})
 
 @require_POST
 @api_errors
 def action(request,name):
-    require_length=len(request.body)<=(300000 if name=='guest_save' else 20000)
+    require_length=len(request.body)<=(300000 if name=='guest_save' else 60000 if name=='terms_save' else 20000)
     if not require_length:raise RuleError('الطلب أكبر من المسموح')
     data=json.loads(request.body)
     if not isinstance(data,dict):raise RuleError('صيغة طلب غير صحيحة')
@@ -128,6 +128,13 @@ def export_view(request,dataset,fmt):
 def document(request,kind,pk):
     from .exports import document_data
     p=membership(request).property
+    if kind=='contract':
+        contract=Contract.objects.filter(pk=pk,reservation__property=p).first()
+        if not contract:raise RuleError('العقد غير موجود في منشأتك')
+        from .exports import cash
+        s=contract.snapshot
+        context={'contract':contract,'s':s,'official':s['property'],'guest':s['guest'],'reference':f'CTR-{p.pk}-{contract.pk:06}','units':s['units'],'totals':[(label,cash(s.get(key,0))) for key,label in [('rent','الإيجار'),('discount','الخصم'),('extras','الإضافات'),('penalties','الغرامات'),('net','المجموع الجزئي'),('tax','ضريبة القيمة المضافة'),('total','المجموع الكلي')]]}
+        return render(request,'contract.html',context)
     title,lines=document_data(p,kind,pk)
     return render(request,'document.html',{'title':title,'lines':lines,'kind':kind,'pk':pk})
 
@@ -147,4 +154,17 @@ def photo(request,pk):
     if not guest or not guest.photo:return HttpResponse(status=404)
     response=HttpResponse(bytes(guest.photo),content_type='image/jpeg')
     response['Cache-Control']='private, no-store'
+    return response
+
+
+@require_GET
+def shared_contract(request,token):
+    from django.core import signing
+    from django.shortcuts import get_object_or_404
+    try:data=signing.loads(token,salt='hoteza-contract-share',max_age=72*3600)
+    except signing.BadSignature:return HttpResponse('رابط العقد غير صالح أو منتهي الصلاحية',status=404)
+    contract=get_object_or_404(Contract,pk=data.get('contract'));s=contract.snapshot
+    from .exports import cash
+    response=render(request,'contract.html',{'contract':contract,'s':s,'official':s['property'],'guest':s['guest'],'reference':f'CTR-{contract.reservation.property_id}-{contract.pk:06}','units':s['units'],'shared':True,'totals':[(label,cash(s.get(key,0))) for key,label in [('rent','الإيجار'),('discount','الخصم'),('extras','الإضافات'),('penalties','الغرامات'),('net','المجموع الجزئي'),('tax','ضريبة القيمة المضافة'),('total','المجموع الكلي')]]})
+    response['Cache-Control']='private, no-store';response['Referrer-Policy']='no-referrer';response['X-Robots-Tag']='noindex, nofollow'
     return response

@@ -10,7 +10,9 @@ from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
 from .validation import guest_fields,expected_time,guest_profile,guest_photo
-from .models import Property, Membership, Unit, Guest, Reservation, Allocation, Block, Charge, Payment, Invoice, Audit, Operation
+from .models import Property, Membership, Unit, Guest, Reservation, Allocation, Block, Charge, Payment, Invoice, Audit, Operation, Expense, Contract
+
+from .operations import price_on,apply_discount,issue_contract,add_months
 
 class RuleError(Exception):
     pass
@@ -74,20 +76,23 @@ def available(unit, start, end, persons=1, exclude=None):
             require(False, 'الوحدة مشغولة بنزيل متأخر عن المغادرة')
     require(not Block.objects.filter(unit=unit,start__lt=end,end__gt=start).exists(), 'الوحدة محجوبة للصيانة')
 
-def add_charge(r, description, amount, service_date, kind='service'):
+def add_charge(r, description, amount, service_date, kind='service',unit=None):
     tax = int((Decimal(amount)*r.property.tax_rate/100).quantize(Decimal('1'),rounding=ROUND_HALF_UP))
-    return Charge.objects.create(reservation=r,description=description,net=amount,tax=tax,service_date=service_date,kind=kind)
+    return Charge.objects.create(reservation=r,description=description,net=amount,tax=tax,service_date=service_date,kind=kind,unit=unit)
 
-def nightly(r,start,end,rate):
+def nightly(r,start,end,rate,unit=None):
+    if unit is None:
+        allocation=r.allocations.filter(start__lte=start,end__gte=end).first()
+        unit=allocation.unit if allocation else None
     for d in dates(start,end):
-        add_charge(r,'إقامة ليلة '+d.isoformat(),rate,d,'room')
+        add_charge(r,'إقامة '+('شهرية / ' if r.rental_type=='monthly' else 'ليلة ')+d.isoformat(),price_on(r,d,rate),d,'room',unit)
 
 def audit(prop,user,action,details):
     Audit.objects.create(property=prop,user=user,action=action,details=details)
 
 def reverse_future_nights(r, cut):
     """Preserve billed lines and credit their unused nights; remove only draft charges."""
-    future=list(r.charges.filter(kind='room',service_date__gte=cut))
+    future=list(r.charges.filter(kind__in=['room','discount'],service_date__gte=cut))
     groups={}
     for c in future:
         if c.invoice_id:groups.setdefault(c.invoice_id,[]).append(c)
@@ -95,11 +100,25 @@ def reverse_future_nights(r, cut):
     for invoice_id,charges in groups.items():
         ref=Invoice.objects.get(pk=invoice_id)
         require(not r.invoices.filter(reference=ref,kind='credit').exists(),'توجد تسويات سابقة على الفاتورة؛ راجع المغادرة المبكرة يدويًا')
-        lines=[{'description':'إلغاء ليلة غير مستخدمة: '+str(c.service_date),'date':str(c.service_date),'net':-c.net,'tax':-c.tax} for c in charges]
+        lines=[{'description':'إلغاء ليلة غير مستخدمة: '+str(c.service_date),'date':str(c.service_date),'net':-c.net,'tax':-c.tax,'unit_id':c.unit_id,'kind':'discount_reversal' if c.kind=='discount' else 'room_reversal'} for c in charges]
         inv=Invoice.objects.create(reservation=r,kind='credit',reference=ref,total=sum(x['net']+x['tax'] for x in lines),snapshot={**ref.snapshot,'lines':lines})
-        for x in lines:Charge.objects.create(reservation=r,service_date=day(x['date']),description=x['description'],net=x['net'],tax=x['tax'],kind='room_reversal',invoice=inv)
+        for x in lines:Charge.objects.create(reservation=r,service_date=day(x['date']),description=x['description'],net=x['net'],tax=x['tax'],kind=x['kind'],unit_id=x['unit_id'],invoice=inv)
 
-OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure'}
+def reservation_units(prop,data,default_unit,persons,start,end,reservation=None):
+    rows=data.get('units')
+    if rows is None:rows=[{'unit':default_unit.pk,'rate':data.get('rate',default_unit.rate/100)}]
+    require(isinstance(rows,list) and 1<=len(rows)<=20,'اختر من وحدة إلى 20 وحدة')
+    result=[];seen=set()
+    for row in rows:
+        require(isinstance(row,dict),'بيانات الوحدات غير صحيحة')
+        unit=owned(Unit,prop,row.get('unit'));require(unit.pk not in seen,'لا تكرر الوحدة في الحجز');seen.add(unit.pk)
+        available(unit,start,end,persons if len(rows)==1 else 1,reservation)
+        result.append((unit,money(row.get('rate',unit.rate/100))))
+    require(sum(rate for unit,rate in result)<=2147483647,'إجمالي أسعار الوحدات أكبر من الحد المسموح')
+    require(0<persons<=sum(unit.capacity for unit,rate in result),'إجمالي سعة الوحدات غير كافٍ')
+    return result
+
+OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save'}
 
 @transaction.atomic
 def perform(user, prop_id, action, d, key):
@@ -136,7 +155,7 @@ def perform(user, prop_id, action, d, key):
         a,b=day(d.get('arrival')),day(d.get('departure')); dates(a,b)
         require(a>=timezone.localdate(),'الحجز الجديد لا يبدأ في الماضي')
         u=owned(Unit,prop,d.get('unit')); g=owned(Guest,prop,d.get('guest')); n=int(d.get('persons',1))
-        available(u,a,b,n)
+        unit_rows=reservation_units(prop,d,u,n,a,b)
         details=d.get('guest_details')
         if details is not None:
             require(isinstance(details,dict),'بيانات النزيل غير صحيحة')
@@ -144,10 +163,14 @@ def perform(user, prop_id, action, d, key):
             g.full_clean();g.save()
         else:guest_fields({field:getattr(g,field) for field in ['name','phone','email','region','city','street']})
         arrival_time=expected_time(d.get('arrival_time','14:00'));departure_time=expected_time(d.get('departure_time','12:00'))
-        r=Reservation.objects.create(property=prop,guest=g,arrival=a,departure=b,arrival_time=arrival_time,departure_time=departure_time,persons=n,rate=money(d.get('rate',u.rate/100)),source=text(d,'source',60,'استقبال'))
-        Allocation.objects.create(reservation=r,unit=u,start=a,end=b); nightly(r,a,b,r.rate)
-        result={'id':r.pk}
-    elif action in {'reservation_edit','checkin','checkout','cancel','no_show','extend','move','payment','refund','charge','invoice','adjustment','early_departure'}:
+        rental_type=d.get('rental_type','daily');require(rental_type in ['daily','monthly'],'نوع الإيجار غير صحيح')
+        r=Reservation.objects.create(property=prop,guest=g,arrival=a,departure=b,arrival_time=arrival_time,departure_time=departure_time,persons=n,rate=sum(x[1] for x in unit_rows),source=text(d,'source',60,'استقبال'),rental_type=rental_type,visit_purpose=text(d,'visit_purpose',100),auto_extend=d.get('auto_extend') is True)
+        for unit,rate in unit_rows:
+            Allocation.objects.create(reservation=r,unit=unit,start=a,end=b,rate=rate);nightly(r,a,b,rate,unit)
+        if d.get('discount_value'):apply_discount(r,d.get('discount_type','fixed'),d['discount_value'],require)
+        contract=issue_contract(r,user)
+        result={'id':r.pk,'contract':contract.pk}
+    elif action in {'reservation_edit','checkin','checkout','cancel','no_show','extend','move','payment','refund','charge','invoice','adjustment','early_departure','discount','contract_issue','renew_settings','auto_extend','contract_share'}:
         r=owned(Reservation,prop,d.get('id'))
         a=r.allocations.order_by('start','id').last()
         if action == 'reservation_edit':
@@ -155,8 +178,10 @@ def perform(user, prop_id, action, d, key):
             require(not r.invoices.exists() and not r.payments.exists(),'الحجز له مستندات مالية؛ استخدم التسوية بدل إعادة التسعير')
             start,end=day(d.get('arrival')),day(d.get('departure')); dates(start,end)
             require(start>=timezone.localdate(),'الوصول لا يبدأ في الماضي')
-            u=owned(Unit,prop,d.get('unit')); n=int(d.get('persons',r.persons)); available(u,start,end,n,r)
-            r.arrival=start;r.departure=end;r.persons=n;r.rate=money(d.get('rate',r.rate/100))
+            u=owned(Unit,prop,d.get('unit')); n=int(d.get('persons',r.persons));unit_rows=reservation_units(prop,d,u,n,start,end,r)
+            r.arrival=start;r.departure=end;r.persons=n;r.rate=sum(x[1] for x in unit_rows)
+            r.rental_type=d.get('rental_type',r.rental_type);require(r.rental_type in ['daily','monthly'],'نوع الإيجار غير صحيح')
+            r.visit_purpose=text(d,'visit_purpose',100,r.visit_purpose);r.auto_extend=d.get('auto_extend',r.auto_extend) is True
             if d.get('guest'):r.guest=owned(Guest,prop,d['guest'])
             if d.get('guest_details') is not None:
                 require(isinstance(d['guest_details'],dict),'بيانات النزيل غير صحيحة')
@@ -164,25 +189,30 @@ def perform(user, prop_id, action, d, key):
                 r.guest.full_clean();r.guest.save()
             r.arrival_time=expected_time(d.get('arrival_time',r.arrival_time.strftime('%H:%M')));r.departure_time=expected_time(d.get('departure_time',r.departure_time.strftime('%H:%M')))
             r.source=text(d,'source',60,r.source);r.save()
-            r.allocations.all().delete(); Allocation.objects.create(reservation=r,unit=u,start=start,end=end)
-            r.charges.all().delete(); nightly(r,start,end,r.rate)
+            r.allocations.all().delete();r.charges.all().delete()
+            for unit,rate in unit_rows:
+                Allocation.objects.create(reservation=r,unit=unit,start=start,end=end,rate=rate);nightly(r,start,end,rate,unit)
+            if d.get('discount_value'):apply_discount(r,d.get('discount_type','fixed'),d['discount_value'],require)
+            issue_contract(r,user)
         elif action == 'checkin':
             require(r.status=='confirmed','الحجز غير مؤهل للتسكين')
             require(r.arrival<=timezone.localdate()<r.departure,'التسكين خلال فترة الإقامة فقط')
-            available(a.unit,a.start,a.end,r.persons,r)
-            require(a.unit.cleaning=='ready','الوحدة غير جاهزة للتسكين')
+            for allocation in r.allocations.filter(end=r.departure).select_related('unit'):
+                available(allocation.unit,allocation.start,allocation.end,1 if r.allocations.filter(end=r.departure).count()>1 else r.persons,r)
+                require(allocation.unit.cleaning=='ready','الوحدة '+allocation.unit.number+' غير جاهزة للتسكين')
             r.status='checked_in';r.checked_in_at=timezone.now();r.save()
         elif action == 'checkout':
             require(r.status=='checked_in','الحجز غير مسكن')
-            require(timezone.localdate()>=r.departure,'المغادرة المبكرة تتطلب تسوية الليالي أولًا بواسطة المالك')
+            require(timezone.localdate()>=r.departure or (member.role=='owner' and d.get('allow_same_day') is True and timezone.localdate()==r.arrival and r.departure==r.arrival+timedelta(days=1)),'المغادرة المبكرة تتطلب تسوية الليالي أولًا بواسطة المالك؛ مغادرة نفس اليوم تحتسب ليلة واحدة')
             require(balance(r)['balance']==0 or (member.role=='owner' and d.get('allow_debt') and balance(r)['balance']>0),'يجب تسوية الحساب أو اعتماد مديونية من المالك')
             require(not r.charges.filter(invoice__isnull=True).exists(),'أصدر فاتورة الرسوم غير المفوترة قبل المغادرة')
             r.status='checked_out';r.checked_out_at=timezone.now();r.save()
-            a.unit.cleaning='dirty';a.unit.save()
+            for allocation in r.allocations.filter(end=r.departure).select_related('unit'):
+                allocation.unit.cleaning='dirty';allocation.unit.save()
         elif action == 'early_departure':
             require(r.status=='checked_in','الحجز غير مسكن')
             cut=day(d.get('departure',timezone.localdate()))
-            require(cut==timezone.localdate() and r.arrival<cut<r.departure,'المغادرة المبكرة من اليوم التالي للوصول وحتى قبل الموعد الأصلي')
+            require((cut==timezone.localdate() and r.arrival<cut<r.departure) or (timezone.localdate()==r.arrival and cut==r.arrival+timedelta(days=1) and cut<r.departure),'حدد اليوم للمغادرة المبكرة، أو اليوم التالي للوصول لاحتساب ليلة واحدة عند مغادرة نفس اليوم')
             reverse_future_nights(r,cut)
             for alloc in r.allocations.filter(start__gte=cut):alloc.delete()
             r.allocations.filter(end__gt=cut).update(end=cut)
@@ -198,18 +228,25 @@ def perform(user, prop_id, action, d, key):
         elif action == 'extend':
             require(r.status in ['confirmed','checked_in'],'لا يمكن تمديد هذا الحجز')
             end=day(d.get('departure'));require(end>r.departure,'موعد التمديد يجب أن يكون لاحقًا')
-            available(a.unit,r.departure,end,r.persons,r)
-            rate=money(d.get('rate',r.rate/100));nightly(r,r.departure,end,rate)
-            a.end=end;a.save();r.departure=end;r.save()
+            current=list(r.allocations.filter(end=r.departure).select_related('unit'))
+            target=money(d.get('rate',r.rate/100));require(target<=2147483647,'سعر الفترة أكبر من الحد المسموح');weights=[x.rate if x.rate is not None else r.rate for x in current];remaining=target
+            for i,allocation in enumerate(current):
+                available(allocation.unit,r.departure,end,1 if len(current)>1 else r.persons,r)
+                rate=remaining if i==len(current)-1 else target*weights[i]//sum(weights) if sum(weights) else target//len(current)
+                remaining-=rate;nightly(r,r.departure,end,rate,allocation.unit);allocation.end=end;allocation.rate=rate;allocation.save()
+            r.rate=target;r.departure=end;r.save();issue_contract(r,user)
         elif action == 'move':
             require(r.status=='checked_in','النقل متاح للمقيمين فقط')
+            if d.get('allocation'):a=r.allocations.filter(pk=d['allocation'],end=r.departure).first();require(a is not None,'تخصيص الوحدة غير صحيح')
+            else:require(r.allocations.filter(end=r.departure).count()==1,'اختر الوحدة المراد نقلها')
             when=timezone.localdate();require(when<r.departure,'مدد الإقامة أولًا')
-            u=owned(Unit,prop,d.get('unit'));require(u.pk!=a.unit_id,'اختر وحدة أخرى');available(u,when,r.departure,r.persons,r)
+            u=owned(Unit,prop,d.get('unit'));require(u.pk!=a.unit_id,'اختر وحدة أخرى');available(u,when,r.departure,1 if r.allocations.filter(end=r.departure).count()>1 else r.persons,r)
             require(u.cleaning=='ready','الوحدة الجديدة غير جاهزة')
-            old=a.unit; end=a.end
+            old=a.unit; end=a.end;allocation_rate=a.rate
             if a.start==when:a.delete()
             else:a.end=when;a.save()
-            Allocation.objects.create(reservation=r,unit=u,start=when,end=end)
+            Allocation.objects.create(reservation=r,unit=u,start=when,end=end,rate=allocation_rate)
+            r.charges.filter(unit=old,service_date__gte=when).update(unit=u)
             old.cleaning='dirty';old.save()
             result={'from_unit':old.pk,'to_unit':u.pk,'moved_at':timezone.now().isoformat()}
         elif action in {'payment','refund'}:
@@ -221,10 +258,11 @@ def perform(user, prop_id, action, d, key):
         elif action == 'charge':
             require(r.status in ['confirmed','checked_in'],'الحجز مغلق')
             desc=text(d,'description',200);require(bool(desc),'وصف الخدمة مطلوب')
-            c=add_charge(r,desc,money(d.get('amount')),day(d.get('date',timezone.localdate())));result={'charge':c.pk}
+            kind=d.get('kind','service');require(kind in ['service','penalty'],'نوع الإضافة غير صحيح')
+            c=add_charge(r,desc,money(d.get('amount')),day(d.get('date',timezone.localdate())),kind);result={'charge':c.pk}
         elif action == 'invoice':
             charges=list(r.charges.filter(invoice__isnull=True));require(bool(charges),'لا توجد رسوم غير مفوترة')
-            require(all(c.net>=0 for c in charges),'التعديلات تحتاج مستند تصحيح')
+            require(all(c.net>=0 or c.kind=='discount' for c in charges),'التعديلات تحتاج مستند تصحيح')
             buyer=text(d,'buyer',200,r.guest.name); buyer_tax=text(d,'buyer_tax',30); buyer_address=text(d,'buyer_address',300)
             snap={'property':prop.name,'address':prop.address,'tax_number':prop.tax_number,'buyer':buyer,'buyer_tax':buyer_tax,'buyer_address':buyer_address,'guest':r.guest.name,'reservation':r.pk,'arrival':str(r.arrival),'departure':str(r.departure),'currency':prop.currency,'lines':[{'description':c.description,'date':str(c.service_date),'net':c.net,'tax':c.tax} for c in charges],'notice':'مستند تجريبي — غير صالح كفاتورة إلكترونية نظامية'}
             inv=Invoice.objects.create(reservation=r,snapshot=snap,total=sum(c.net+c.tax for c in charges));r.charges.filter(pk__in=[c.pk for c in charges]).update(invoice=inv);result={'invoice':inv.pk}
@@ -243,7 +281,36 @@ def perform(user, prop_id, action, d, key):
             snap={**ref.snapshot,'lines':[{'description':reason,'date':str(timezone.localdate()),'net':sign*(amount-tax),'tax':sign*tax}]}
             inv=Invoice.objects.create(reservation=r,kind=mode,reference=ref,total=sign*amount,snapshot=snap)
             Charge.objects.create(reservation=r,service_date=timezone.localdate(),description=reason,net=sign*(amount-tax),tax=sign*tax,kind='adjustment',invoice=inv);result={'invoice':inv.pk}
+        elif action=='discount':
+            require(r.status in ['confirmed','checked_in'],'الحجز مغلق');apply_discount(r,d.get('discount_type','fixed'),d.get('discount_value'),require)
+        elif action=='contract_issue':
+            result={'contract':issue_contract(r,user).pk}
+        elif action=='auto_extend':
+            require(r.status=='checked_in' and r.auto_extend and r.departure<=timezone.localdate(),'الحجز غير مستحق للتمديد التلقائي')
+            end=max(r.departure,timezone.localdate())+timedelta(days=1)
+            if r.rental_type=='monthly':
+                month=(timezone.localdate().year-r.arrival.year)*12+timezone.localdate().month-r.arrival.month+1
+                end=add_months(r.arrival,month)
+                if end<=timezone.localdate():end=add_months(r.arrival,month+1)
+            result=perform(user,prop.pk,'extend',{'id':r.pk,'departure':str(end),'rate':str(Decimal(r.rate)/100)},hashlib.sha256((key+':renew').encode()).hexdigest())
+        elif action=='contract_share':
+            from django.core import signing
+            contract=r.contracts.order_by('-id').first();require(contract is not None,'أصدر العقد أولًا')
+            require(contract.snapshot.get('terms_complete'),'أكمل الشروط الأربعة عشر ثم أصدر نسخة عقد محدثة قبل الإرسال')
+            token=signing.dumps({'contract':contract.pk},salt='hoteza-contract-share',compress=True)
+            result={'url':'/contract/shared/'+token+'/','expires_hours':72}
+        elif action=='renew_settings':
+            require(r.status in ['confirmed','checked_in'],'الحجز مغلق');r.auto_extend=d.get('auto_extend') is True;r.save()
         result['id']=r.pk
+    elif action=='expense':
+        amount=money(d.get('amount'));require(amount>0,'المبلغ يجب أن يكون موجبًا')
+        method=text(d,'method',30);require(method in ['نقد','شبكة','تحويل'],'طريقة دفع غير صحيحة')
+        beneficiary=text(d,'beneficiary');description=text(d,'description',250);require(bool(beneficiary and description),'المستفيد والبيان مطلوبان')
+        reservation=owned(Reservation,prop,d['id']) if d.get('id') else None
+        obj=Expense.objects.create(property=prop,reservation=reservation,amount=amount,method=method,beneficiary=beneficiary,description=description,user=user);result={'expense':obj.pk}
+    elif action=='terms_save':
+        terms=d.get('terms');require(isinstance(terms,list) and len(terms)==14 and all(isinstance(x,str) and 5<=len(x.strip())<=2000 for x in terms),'أدخل الشروط الأربعة عشر كاملة؛ كل شرط من 5 إلى 2000 حرف')
+        prop.contract_terms=[x.strip() for x in terms];prop.save()
     elif action == 'cleaning':
         u=owned(Unit,prop,d.get('id'));state=d.get('cleaning');require(state in ['ready','dirty','cleaning'],'حالة غير صحيحة');u.cleaning=state;u.save()
     elif action == 'block':
@@ -254,6 +321,9 @@ def perform(user, prop_id, action, d, key):
     elif action == 'property_save':
         prop.name=text(d,'name');prop.address=text(d,'address',300);prop.tax_number=text(d,'tax_number',30)
         require(bool(prop.name),'اسم المنشأة مطلوب')
+        official={}
+        for field,limit in [('commercial_registration',30),('tourism_license',30),('phone',40),('mobile',40),('postal_code',15),('email',254)]:official[field]=text(d,field,limit,prop.official.get(field,''))
+        prop.official=official
         rate=Decimal(str(d.get('tax_rate',0)));require(rate.is_finite() and 0<=rate<=100,'نسبة ضريبة غير صحيحة');prop.tax_rate=rate;prop.full_clean();prop.save()
     elif action == 'user_add':
         username=text(d,'username',150);password=str(d.get('password',''));validate_password(password)
@@ -288,7 +358,7 @@ def report(prop,start,end):
         blocked={b.unit_id for b in blocks if b.start<=d<b.end}
         occupied={a.unit_id for a in allocations if a.start<=d<a.end}
         charges=Charge.objects.filter(reservation__property=prop,service_date=d).aggregate(net=Sum('net'),tax=Sum('tax'))
-        room_revenue=Charge.objects.filter(reservation__property=prop,service_date=d,kind__in=['room','room_reversal']).aggregate(n=Sum('net'))['n'] or 0
+        room_revenue=Charge.objects.filter(reservation__property=prop,service_date=d,kind__in=['room','room_reversal','discount','discount_reversal']).aggregate(n=Sum('net'))['n'] or 0
         paid=Payment.objects.filter(reservation__property=prop,created_at__date=d).aggregate(n=Sum('amount'))['n'] or 0
         rows.append({'date':str(d),'available':len(units)-len(blocked),'sold':len(occupied),'net':charges['net'] or 0,'tax':charges['tax'] or 0,'room_revenue':room_revenue,'paid':paid})
         for u in units:
@@ -302,6 +372,8 @@ def report(prop,start,end):
         src=c.reservation.source
         per_source.setdefault(src,{'source':src,'sold':0,'net':0,'tax':0})
         per_source[src]['net']+=c.net;per_source[src]['tax']+=c.tax
+        if c.unit_id and c.unit_id in per_unit:
+            per_unit[c.unit_id]['net']+=c.net;per_unit[c.unit_id]['tax']+=c.tax;continue
         allocation=c.reservation.allocations.filter(start__lte=c.service_date,end__gt=c.service_date).first() or c.reservation.allocations.order_by('start','id').last()
         if allocation and allocation.unit_id in per_unit:
             per_unit[allocation.unit_id]['net']+=c.net;per_unit[allocation.unit_id]['tax']+=c.tax

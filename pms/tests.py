@@ -8,7 +8,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection,close_old_connections
 from django.utils import timezone
-from .models import Property,Membership,Unit,Guest,Reservation,Allocation,Charge,Payment,Invoice,Audit
+from .models import Property,Membership,Unit,Guest,Reservation,Allocation,Charge,Payment,Invoice,Audit,Contract,Expense
 from .services import perform,RuleError,balance,report,money
 
 class PMSCase(TestCase):
@@ -82,6 +82,57 @@ class PMSCase(TestCase):
         self.g.city='';self.g.save()
         response=self.api('reservation_create',{'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=1))})
         self.assertEqual(response.status_code,400);self.assertEqual(Reservation.objects.count(),0)
+    def test_monthly_multi_unit_pricing_and_atomic_conflict(self):
+        from datetime import date
+        from .operations import add_months
+        with patch('pms.services.timezone.localdate',return_value=date(2027,1,31)):
+            r=self.book(arrival='2027-01-31',departure='2027-02-28',rental_type='monthly',units=[{'unit':self.u.pk,'rate':'2800'},{'unit':self.v.pk,'rate':'1400'}],persons=4)
+            self.assertEqual(balance(r)['net'],420000);self.assertEqual(balance(r)['total'],483000)
+            self.assertEqual(r.allocations.count(),2);self.assertEqual(r.contracts.count(),1)
+            self.assertEqual(sum(c.net for c in r.charges.filter(unit=self.u)),280000)
+            with self.assertRaises(RuleError):self.book(arrival='2027-01-31',departure='2027-02-28',units=[{'unit':self.v.pk,'rate':100},{'unit':self.u.pk,'rate':100}])
+            self.assertEqual(Reservation.objects.count(),1)
+            self.op('checkin',{'id':r.pk});self.op('extend',{'id':r.pk,'departure':'2027-03-31','rate':4200})
+            self.assertEqual(balance(r)['net'],840000)
+        self.assertEqual(add_months(date(2027,1,31),1),date(2027,2,28))
+    def test_discount_expense_and_contract_snapshot(self):
+        r=self.book();self.op('discount',{'id':r.pk,'discount_type':'percent','discount_value':10})
+        self.assertEqual(balance(r)['total'],46575)
+        before=balance(r);result=self.op('expense',{'id':r.pk,'amount':100,'method':'نقد','beneficiary':'مورد تجريبي','description':'شراء مستلزمات'})
+        self.assertEqual(balance(r),before);self.assertEqual(Expense.objects.get(pk=result['expense']).amount,10000)
+        self.op('invoice',{'id':r.pk});self.assertEqual(r.invoices.first().total,46575)
+        with self.assertRaises(RuleError):self.op('discount',{'id':r.pk,'discount_type':'fixed','discount_value':10})
+        self.op('contract_issue',{'id':r.pk});c=r.contracts.order_by('-id').first();original=c.snapshot
+        self.g.name='اسم آخر';self.g.save();c.refresh_from_db();self.assertEqual(c.snapshot,original)
+        response=self.client.get(f'/document/contract/{c.pk}/');self.assertEqual(response.status_code,200);self.assertContains(response,'مسودة غير مكتملة')
+        self.client.force_login(self.other);self.assertEqual(self.client.get(f'/document/contract/{c.pk}/').status_code,400)
+    def test_contract_terms_share_expiration_and_tamper(self):
+        r=self.book()
+        with self.assertRaises(RuleError):self.op('contract_share',{'id':r.pk})
+        terms=[f'شرط اختباري كامل رقم {i}' for i in range(14)]
+        self.op('terms_save',{'terms':terms});self.op('contract_issue',{'id':r.pk})
+        link=self.op('contract_share',{'id':r.pk})['url'];anon=Client()
+        self.assertEqual(anon.get(link).status_code,200);self.assertContains(anon.get(link),terms[-1])
+        self.assertEqual(anon.get(link[:-2]+'x/').status_code,404)
+        with patch('django.core.signing.time.time',return_value=timezone.now().timestamp()+73*3600):self.assertEqual(anon.get(link).status_code,404)
+        self.assertEqual(self.api('terms_save',{'terms':terms[:13]}).status_code,400)
+    def test_multi_unit_checkout_and_auto_extension(self):
+        r=self.book(units=[{'unit':self.u.pk,'rate':100},{'unit':self.v.pk,'rate':100}],persons=3,auto_extend=True)
+        self.op('checkin',{'id':r.pk})
+        with patch('pms.services.timezone.localdate',return_value=r.departure):self.op('auto_extend',{'id':r.pk})
+        r.refresh_from_db();self.assertEqual(r.departure,self.today+timedelta(days=4));self.assertEqual(r.allocations.filter(end=r.departure).count(),2)
+        self.op('invoice',{'id':r.pk});self.op('payment',{'id':r.pk,'amount':920,'method':'شبكة'})
+        with patch('pms.services.timezone.localdate',return_value=r.departure):self.op('checkout',{'id':r.pk})
+        self.u.refresh_from_db();self.v.refresh_from_db();self.assertEqual([self.u.cleaning,self.v.cleaning],['dirty','dirty'])
+
+    def test_same_day_checkout_retains_one_night_and_reverses_discount(self):
+        r=self.book(discount_type='percent',discount_value=10)
+        self.op('checkin',{'id':r.pk})
+        self.op('early_departure',{'id':r.pk,'departure':str(self.today+timedelta(days=1))})
+        self.assertEqual(balance(r)['total'],15525)
+        self.op('invoice',{'id':r.pk});self.op('payment',{'id':r.pk,'amount':'155.25','method':'نقد'})
+        self.op('checkout',{'id':r.pk,'allow_same_day':True});r.refresh_from_db();self.assertEqual(r.status,'checked_out')
+
     def test_booking_amounts_and_tax(self):
         r=self.book();self.assertEqual(balance(r),{'net':45000,'tax':6750,'total':51750,'paid':0,'balance':51750});self.assertEqual(r.allocations.count(),1)
     def test_overlap_rejected_without_partial_guest_charge(self):

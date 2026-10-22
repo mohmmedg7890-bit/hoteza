@@ -8,6 +8,8 @@ class Property(models.Model):
     address = models.CharField(max_length=300, blank=True)
     tax_number = models.CharField(max_length=30, blank=True)
     tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    official = models.JSONField(default=dict,blank=True)
+    contract_terms = models.JSONField(default=list,blank=True)
     currency = models.CharField(max_length=3, default='SAR')
     subscription_until = models.DateField(null=True, blank=True)
 
@@ -52,6 +54,9 @@ class Reservation(models.Model):
     persons = models.PositiveIntegerField(default=1)
     rate = models.PositiveIntegerField()
     status = models.CharField(max_length=20,default='confirmed')
+    rental_type = models.CharField(max_length=10,default='daily')
+    visit_purpose = models.CharField(max_length=100,blank=True)
+    auto_extend = models.BooleanField(default=False)
     source = models.CharField(max_length=60,default='استقبال')
     checked_in_at = models.DateTimeField(null=True,blank=True)
     checked_out_at = models.DateTimeField(null=True,blank=True)
@@ -64,6 +69,7 @@ class Allocation(models.Model):
     unit = models.ForeignKey(Unit,on_delete=models.PROTECT)
     start = models.DateField()
     end = models.DateField()
+    rate = models.PositiveIntegerField(null=True,blank=True)
     class Meta:
         constraints = [models.CheckConstraint(condition=Q(end__gt=models.F('start')),name='allocation_dates_valid')]
         indexes = [models.Index(fields=['unit','start','end'])]
@@ -85,6 +91,7 @@ class Invoice(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
 class Charge(models.Model):
+    unit = models.ForeignKey(Unit,on_delete=models.PROTECT,null=True,blank=True)
     reservation = models.ForeignKey(Reservation,on_delete=models.PROTECT,related_name='charges')
     service_date = models.DateField()
     description = models.CharField(max_length=200)
@@ -115,3 +122,19 @@ class Operation(models.Model):
     result = models.JSONField(default=dict)
     class Meta:
         constraints = [models.UniqueConstraint(fields=['property','key'],name='operation_unique')]
+
+class Expense(models.Model):
+    property = models.ForeignKey(Property,on_delete=models.PROTECT)
+    reservation = models.ForeignKey(Reservation,on_delete=models.PROTECT,null=True,blank=True)
+    amount = models.PositiveBigIntegerField()
+    method = models.CharField(max_length=30)
+    beneficiary = models.CharField(max_length=160)
+    description = models.CharField(max_length=250)
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+
+class Contract(models.Model):
+    reservation = models.ForeignKey(Reservation,on_delete=models.PROTECT,related_name='contracts')
+    snapshot = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
