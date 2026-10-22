@@ -24,6 +24,14 @@ async function main(){
  const wait=()=>p.waitForTimeout(180);
  await p.goto('http://127.0.0.1:8771/');assert((await p.locator('#heroTitle').textContent()).includes('ضيافتك'));await p.locator('[data-modal=offerModal]').first().click();assert(await p.locator('#offerModal').isVisible());await p.locator('#offerModal .modal-close').click();await p.waitForFunction(()=>!document.querySelector('#offerModal').open);await p.goto('http://127.0.0.1:8771/login/');await p.locator('[name=username]').fill('demo-owner');await p.locator('[name=password]').fill(password);await p.getByRole('button',{name:'تسجيل الدخول',exact:true}).click();await p.waitForSelector('.metrics');
  assert.equal(await p.locator('#nav .nav-section').count(),3);
+ // Repeated modal closure must release pointer hit-testing; exercise real clicks, not evaluate(openForm).
+ for(let i=0;i<3;i++){
+  await p.locator('#nav a[href="#guests"]').click();await p.getByRole('button',{name:'إضافة نزيل',exact:true}).click();await p.locator('#close-modal').click();
+  await p.locator('#nav a[href="#reports"]').click();await p.locator('[data-report-view=units]').click();await p.waitForFunction(()=>document.querySelector('[data-report-view=units]').getAttribute('aria-selected')==='true');
+  assert.equal(await p.locator('dialog[open]').count(),0);
+ }
+ await p.locator('[data-report-view=overview]').click();
+
  await p.locator('[data-appearance-open]').click();await p.locator('#appearance-radius').fill('30');await p.locator('#appearance-save').click();assert.equal(await p.evaluate(()=>document.documentElement.style.getPropertyValue('--appearance-radius')),'30px');await p.locator('[data-appearance-close]').click();await p.locator('header [data-appearance-toggle]').click();assert.equal(await p.evaluate(()=>document.documentElement.dataset.appearance),'light');await p.locator('header [data-appearance-toggle]').click();
  const pages=[];
  for(const id of ['dashboard','calendar','reservations','today','units','guests','housekeeping','payments','invoices','balances','reports','users','settings','audit','profile']){
