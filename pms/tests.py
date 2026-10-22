@@ -25,7 +25,7 @@ class PMSCase(TestCase):
         cls.u=Unit.objects.create(property=cls.p,number='101',kind='استوديو',capacity=2)
         cls.v=Unit.objects.create(property=cls.p,number='102',kind='غرفة وصالة',capacity=3)
         cls.w=Unit.objects.create(property=cls.q,number='101',kind='استوديو')
-        cls.g=Guest.objects.create(property=cls.p,name='نزيل تجريبي')
+        cls.g=Guest.objects.create(property=cls.p,name='نزيل تجريبي',phone='0500000000',email='guest@example.com',region='عسير',city='أبها',street='شارع الاختبار')
         cls.h=Guest.objects.create(property=cls.q,name='سري في منشأة ب')
     def setUp(self):self.today=timezone.localdate();self.client.force_login(self.owner)
     def op(self,action,d,user=None,key=None):return perform(user or self.owner,self.p.pk,action,d,key or str(uuid.uuid4()))
@@ -33,6 +33,23 @@ class PMSCase(TestCase):
         d={'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=3)),'rate':'150','persons':2};d.update(kw)
         return Reservation.objects.get(pk=self.op('reservation_create',d)['id'])
     def api(self,action,d,key=None):return self.client.post('/api/action/'+action+'/',data=json.dumps(d),content_type='application/json',HTTP_IDEMPOTENCY_KEY=key or str(uuid.uuid4()))
+    def test_strict_guest_fields_and_saudi_normalization(self):
+        valid={'name':'محمد أحمد','phone':'٠٥٠٠٠٠٠٠٠٠','email':'guest@example.com','region':'عسير','city':'أبها','street':'شارع الاختبار'}
+        response=self.api('guest_save',valid);self.assertEqual(response.status_code,200)
+        self.assertEqual(Guest.objects.get(pk=response.json()['id']).phone,'+966500000000')
+        for key,value in [('name','محمد'),('name','محمد 123'),('phone','+9660500000000'),('phone','051'),('email','invalid'),('region',''),('city',''),('street','')]:
+            with self.subTest(key=key,value=value):self.assertEqual(self.api('guest_save',{**valid,key:value}).status_code,400)
+    def test_expected_times_validate_and_guest_update_rolls_back(self):
+        bad=self.api('reservation_create',{'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=1)),'arrival_time':'29:00'})
+        self.assertEqual(bad.status_code,400);self.assertEqual(Reservation.objects.count(),0)
+        r=self.book(arrival_time='16:30',departure_time='11:00');self.assertEqual(r.arrival_time.strftime('%H:%M'),'16:30')
+        details={'name':'اسم مختلف','phone':'0500000000','email':'new@example.com','region':'عسير','city':'أبها','street':'عنوان جديد'}
+        response=self.api('reservation_create',{'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=1)),'guest_details':details})
+        self.assertEqual(response.status_code,400);self.g.refresh_from_db();self.assertEqual(self.g.name,'نزيل تجريبي')
+    def test_legacy_guest_requires_completion_before_new_booking(self):
+        self.g.city='';self.g.save()
+        response=self.api('reservation_create',{'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=1))})
+        self.assertEqual(response.status_code,400);self.assertEqual(Reservation.objects.count(),0)
     def test_booking_amounts_and_tax(self):
         r=self.book();self.assertEqual(balance(r),{'net':45000,'tax':6750,'total':51750,'paid':0,'balance':51750});self.assertEqual(r.allocations.count(),1)
     def test_overlap_rejected_without_partial_guest_charge(self):
@@ -206,7 +223,7 @@ class ConcurrencyCase(TransactionTestCase):
         from threading import Barrier
         owner=get_user_model().objects.create_user('race-owner')
         p=Property.objects.create(name='Race');Membership.objects.create(user=owner,property=p,role='owner')
-        u=Unit.objects.create(property=p,number='101',kind='studio');g=Guest.objects.create(property=p,name='Race guest');today=timezone.localdate();barrier=Barrier(2)
+        u=Unit.objects.create(property=p,number='101',kind='studio');g=Guest.objects.create(property=p,name='Race guest',phone='0500000000',email='race@example.com',region='عسير',city='أبها',street='شارع الاختبار');today=timezone.localdate();barrier=Barrier(2)
         def attempt(_):
             close_old_connections();barrier.wait()
             try:

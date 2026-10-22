@@ -9,6 +9,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
+from .validation import guest_fields,expected_time
 from .models import Property, Membership, Unit, Guest, Reservation, Allocation, Block, Charge, Payment, Invoice, Audit, Operation
 
 class RuleError(Exception):
@@ -117,8 +118,7 @@ def perform(user, prop_id, action, d, key):
     result = {}
     if action == 'guest_save':
         g = owned(Guest,prop,d['id']) if d.get('id') else Guest(property=prop)
-        g.name = text(d,'name'); require(bool(g.name),'اسم النزيل مطلوب')
-        g.phone = text(d,'phone',40); g.email = text(d,'email',254)
+        for field,value in guest_fields(d).items():setattr(g,field,value)
         g.full_clean(); g.save(); result={'id':g.pk}
     elif action == 'unit_save':
         u = owned(Unit,prop,d['id']) if d.get('id') else Unit(property=prop)
@@ -133,7 +133,14 @@ def perform(user, prop_id, action, d, key):
         require(a>=timezone.localdate(),'الحجز الجديد لا يبدأ في الماضي')
         u=owned(Unit,prop,d.get('unit')); g=owned(Guest,prop,d.get('guest')); n=int(d.get('persons',1))
         available(u,a,b,n)
-        r=Reservation.objects.create(property=prop,guest=g,arrival=a,departure=b,persons=n,rate=money(d.get('rate',u.rate/100)),source=text(d,'source',60,'استقبال'))
+        details=d.get('guest_details')
+        if details is not None:
+            require(isinstance(details,dict),'بيانات النزيل غير صحيحة')
+            for field,value in guest_fields(details).items():setattr(g,field,value)
+            g.full_clean();g.save()
+        else:guest_fields({field:getattr(g,field) for field in ['name','phone','email','region','city','street']})
+        arrival_time=expected_time(d.get('arrival_time','14:00'));departure_time=expected_time(d.get('departure_time','12:00'))
+        r=Reservation.objects.create(property=prop,guest=g,arrival=a,departure=b,arrival_time=arrival_time,departure_time=departure_time,persons=n,rate=money(d.get('rate',u.rate/100)),source=text(d,'source',60,'استقبال'))
         Allocation.objects.create(reservation=r,unit=u,start=a,end=b); nightly(r,a,b,r.rate)
         result={'id':r.pk}
     elif action in {'reservation_edit','checkin','checkout','cancel','no_show','extend','move','payment','refund','charge','invoice','adjustment','early_departure'}:
@@ -147,6 +154,11 @@ def perform(user, prop_id, action, d, key):
             u=owned(Unit,prop,d.get('unit')); n=int(d.get('persons',r.persons)); available(u,start,end,n,r)
             r.arrival=start;r.departure=end;r.persons=n;r.rate=money(d.get('rate',r.rate/100))
             if d.get('guest'):r.guest=owned(Guest,prop,d['guest'])
+            if d.get('guest_details') is not None:
+                require(isinstance(d['guest_details'],dict),'بيانات النزيل غير صحيحة')
+                for field,value in guest_fields(d['guest_details']).items():setattr(r.guest,field,value)
+                r.guest.full_clean();r.guest.save()
+            r.arrival_time=expected_time(d.get('arrival_time',r.arrival_time.strftime('%H:%M')));r.departure_time=expected_time(d.get('departure_time',r.departure_time.strftime('%H:%M')))
             r.source=text(d,'source',60,r.source);r.save()
             r.allocations.all().delete(); Allocation.objects.create(reservation=r,unit=u,start=start,end=end)
             r.charges.all().delete(); nightly(r,start,end,r.rate)

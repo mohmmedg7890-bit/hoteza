@@ -22,8 +22,9 @@ async function main(){
  const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
  const p=await context.newPage();p.on('pageerror',e=>pageErrors.push(e.message));
  const wait=()=>p.waitForTimeout(180);
- await p.goto('http://127.0.0.1:8771/login/');await p.locator('[name=username]').fill('demo-owner');await p.locator('[name=password]').fill(password);await p.getByRole('button',{name:'تسجيل الدخول',exact:true}).click();await p.waitForSelector('.metrics');
+ await p.goto('http://127.0.0.1:8771/');assert((await p.locator('#heroTitle').textContent()).includes('ضيافتك'));await p.locator('[data-modal=offerModal]').first().click();assert(await p.locator('#offerModal').isVisible());await p.locator('#offerModal [data-close]').click();await p.waitForFunction(()=>!document.querySelector('#offerModal').open);await p.goto('http://127.0.0.1:8771/login/');await p.locator('[name=username]').fill('demo-owner');await p.locator('[name=password]').fill(password);await p.getByRole('button',{name:'تسجيل الدخول',exact:true}).click();await p.waitForSelector('.metrics');
  assert.equal(await p.locator('#nav .nav-section').count(),3);
+ await p.locator('[data-appearance-open]').click();await p.locator('#appearance-radius').fill('30');await p.locator('#appearance-save').click();assert.equal(await p.evaluate(()=>document.documentElement.style.getPropertyValue('--appearance-radius')),'30px');await p.locator('[data-appearance-close]').click();await p.locator('header [data-appearance-toggle]').click();assert.equal(await p.evaluate(()=>document.documentElement.dataset.appearance),'light');await p.locator('header [data-appearance-toggle]').click();
  const pages=[];
  for(const id of ['dashboard','calendar','reservations','today','units','guests','housekeeping','payments','invoices','balances','reports','users','settings','audit','profile']){
   await p.evaluate(id=>location.hash=id,id);await wait();assert(await p.locator('#page h1').isVisible());pages.push(id);
@@ -31,7 +32,7 @@ async function main(){
  async function open(form,id){await p.evaluate(({form,id})=>openForm(form,id),{form,id});await p.waitForSelector('dialog[open]');}
  async function fill(values){for(const [k,v]of Object.entries(values)){const el=p.locator(`#modalform [name="${k}"]`);const tag=await el.evaluate(e=>e.tagName);if(tag==='SELECT')await el.selectOption(String(v));else await el.fill(String(v));}}
  async function save(){await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#modal').open,{},{timeout:5000});await wait();}
- await open('booking');await p.locator('#booking-add-guest').click();await fill({name:'نزيل فحص الواجهة',phone:'0500000000'});await p.locator('#save').click();await p.waitForSelector('#stay-nights');assert.equal(await p.locator('#modal-title').textContent(),'حجز جديد');await p.locator('#close-modal').click();
+ await open('booking');await p.locator('#booking-add-guest').click();await p.locator('[name=phone]').fill('051');assert.equal(await p.locator('[name=phone]').getAttribute('aria-invalid'),'true');await p.locator('#save').click();assert(await p.locator('dialog[open]').isVisible());await fill({name:'نزيل فحص الواجهة',phone:'0500000000',email:'ui@example.com',region:'عسير',city:'أبها',street:'شارع الاختبار'});await p.locator('#save').click();await p.waitForSelector('#stay-nights');assert.equal(await p.locator('#modal-title').textContent(),'حجز جديد');await p.locator('#close-modal').click();
  await open('unit');await fill({number:'UI-901',kind:'استوديو اختبار',floor:'الأول',capacity:2,rate:150});await save();
  await open('unit');await fill({number:'UI-902',kind:'استوديو اختبار',floor:'الأول',capacity:2,rate:150});await save();
  let state=await p.evaluate(()=>S);const guest=state.guests.find(x=>x.name==='نزيل فحص الواجهة'),u=state.units.find(x=>x.number==='UI-901'),v=state.units.find(x=>x.number==='UI-902');
@@ -39,7 +40,7 @@ async function main(){
  await p.evaluate(()=>location.hash='reservations');await wait();await p.locator('#reservation-status').selectOption('checked_out');assert.equal(await p.locator('#page button[data-open=detail]').count(),0);await p.locator('#reservation-status').selectOption('');
  state=await p.evaluate(()=>S);let r=state.reservations.find(x=>x.guest===guest.id);assert.equal(r.total,34500);
  await open('booking');await fill({guest:guest.id,unit:u.id,arrival:state.today,departure:await p.evaluate(()=>addDays(S.today,1)),rate:150,persons:2});await p.locator('#save').click();await p.waitForSelector('#form-error:not(:empty)');assert((await p.locator('#form-error').textContent()).includes('محجوزة'));await p.locator('#close-modal').click();
- p.on('dialog',d=>d.accept());await open('detail',r.id);await p.locator('dialog [data-action="checkin"]').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await wait();
+ p.on('dialog',d=>d.accept());await open('detail',r.id);await p.locator('dialog [data-action="checkin"]').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await wait();
  await open('extend',r.id);await fill({departure:await p.evaluate(()=>addDays(S.today,3)),rate:150});await save();
  await open('move',r.id);await fill({unit:v.id});await save();
  await open('charge',r.id);await fill({description:'خدمة فحص',amount:50});await save();

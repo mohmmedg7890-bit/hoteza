@@ -24,7 +24,7 @@ class Command(BaseCommand):
             for i in range(20 if j==0 else 10):
                 units.append(Unit.objects.create(property=p,number=str(101+i),kind=['استوديو','غرفة وصالة','غرفتان وصالة'][i%3],floor='الأول' if i<10 else 'الثاني',capacity=[2,3,5][i%3],rate=[13000,15000,26000][i%3]))
             for i in range(6):
-                g=Guest.objects.create(property=p,name=f'نزيل تجريبي {j+1}-{i+1}',phone='غير متاح')
+                g=Guest.objects.create(property=p,name='نزيل تجريبي '+['الأول','الثاني','الثالث','الرابع','الخامس','السادس'][i],phone='0500000000',email='demo@example.com',region='عسير',city='أبها',street='عنوان تجريبي')
                 start=today+timedelta(days=i-2);end=start+timedelta(days=3)
                 status='checked_in' if i<2 else 'confirmed'
                 r=Reservation.objects.create(property=p,guest=g,arrival=start,departure=end,persons=2,rate=units[i].rate,status=status,source='استقبال',checked_in_at=timezone.now() if i<2 else None)

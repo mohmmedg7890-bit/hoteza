@@ -1,3 +1,4 @@
+from datetime import time
 from django.db import models
 from django.conf import settings
 from django.db.models import Q
@@ -34,12 +35,17 @@ class Guest(models.Model):
     name = models.CharField(max_length=160)
     phone = models.CharField(max_length=40,blank=True)
     email = models.EmailField(blank=True)
+    region = models.CharField(max_length=100,blank=True)
+    city = models.CharField(max_length=100,blank=True)
+    street = models.CharField(max_length=300,blank=True)
 
 class Reservation(models.Model):
     property = models.ForeignKey(Property,on_delete=models.PROTECT)
     guest = models.ForeignKey(Guest,on_delete=models.PROTECT)
     arrival = models.DateField()
     departure = models.DateField()
+    arrival_time = models.TimeField(default=time(14,0))
+    departure_time = models.TimeField(default=time(12,0))
     persons = models.PositiveIntegerField(default=1)
     rate = models.PositiveIntegerField()
     status = models.CharField(max_length=20,default='confirmed')

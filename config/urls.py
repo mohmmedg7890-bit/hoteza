@@ -3,7 +3,7 @@ from django.contrib.auth import views as auth
 from pms import views
 
 urlpatterns=[
-    path('',lambda request: __import__('django.shortcuts',fromlist=['redirect']).redirect('/app/')),
+    path('',views.landing),
     path('login/',views.login_view),path('logout/',views.logout_view),path('setup/',views.setup),path('app/',views.app),
     path('health/',views.health),path('api/state/',views.state),path('api/action/<str:name>/',views.action),path('api/reports/',views.reports),
     path('export/<str:dataset>/<str:fmt>/',views.export_view),path('document/<str:kind>/<int:pk>/',views.document),

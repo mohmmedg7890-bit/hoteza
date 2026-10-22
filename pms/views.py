@@ -14,6 +14,10 @@ from django.views.decorators.http import require_POST, require_GET
 from .models import Property, Membership, Unit, Guest, Reservation, Block, Invoice, Payment, Audit
 from .services import perform, balance, report, day, RuleError
 
+@require_GET
+def landing(request):
+    return render(request,'landing.html')
+
 def login_view(request):
     error=''
     if request.method=='POST':
@@ -77,7 +81,7 @@ def state(request):
     reservations=[]
     for r in Reservation.objects.filter(property=p).select_related('guest').prefetch_related('allocations__unit','charges','payments','invoices').order_by('-id'):
         allocations=[{'id':a.pk,'unit':a.unit_id,'number':a.unit.number,'start':str(a.start),'end':str(a.end)} for a in r.allocations.all()]
-        reservations.append({'id':r.pk,'guest':r.guest_id,'guest_name':r.guest.name,'phone':r.guest.phone,'arrival':str(r.arrival),'departure':str(r.departure),'persons':r.persons,'rate':r.rate,'status':r.status,'source':r.source,'allocations':allocations,**balance(r),'charges':[{'id':c.pk,'date':str(c.service_date),'description':c.description,'net':c.net,'tax':c.tax,'invoice':c.invoice_id} for c in r.charges.all()],'payments':[{'id':x.pk,'amount':x.amount,'method':x.method,'reference':x.reference,'date':timezone.localtime(x.created_at).isoformat()} for x in r.payments.all()],'invoices':[{'id':i.pk,'kind':i.kind,'total':i.total,'reference':i.reference_id,'date':str(i.created_at.date())} for i in r.invoices.all()]})
+        reservations.append({'id':r.pk,'guest':r.guest_id,'guest_name':r.guest.name,'phone':r.guest.phone,'arrival':str(r.arrival),'departure':str(r.departure),'arrival_time':r.arrival_time.strftime('%H:%M'),'departure_time':r.departure_time.strftime('%H:%M'),'persons':r.persons,'rate':r.rate,'status':r.status,'source':r.source,'allocations':allocations,**balance(r),'charges':[{'id':c.pk,'date':str(c.service_date),'description':c.description,'net':c.net,'tax':c.tax,'invoice':c.invoice_id} for c in r.charges.all()],'payments':[{'id':x.pk,'amount':x.amount,'method':x.method,'reference':x.reference,'date':timezone.localtime(x.created_at).isoformat()} for x in r.payments.all()],'invoices':[{'id':i.pk,'kind':i.kind,'total':i.total,'reference':i.reference_id,'date':str(i.created_at.date())} for i in r.invoices.all()]})
     return JsonResponse({'today':str(today),'user':request.user.username,'superuser':request.user.is_superuser,'role':m.role,'property':{'id':p.pk,'name':p.name,'address':p.address,'tax_number':p.tax_number,'tax_rate':str(p.tax_rate),'currency':p.currency,'subscription_until':str(p.subscription_until or '')},'units':list(Unit.objects.filter(property=p).values()),'guests':list(Guest.objects.filter(property=p).values()),'reservations':reservations,'blocks':list(Block.objects.filter(unit__property=p).values()),'users':list(Membership.objects.filter(property=p).values('id','user__username','role')) if m.role=='owner' else [],'audit':list(Audit.objects.filter(property=p).order_by('-id').values('id','user__username','action','details','created_at')[:200]) if m.role=='owner' else [],'report':report(p,today,today+timedelta(days=1))})
 
 @require_POST
