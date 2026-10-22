@@ -23,6 +23,7 @@ async function main(){
  const p=await context.newPage();p.on('pageerror',e=>pageErrors.push(e.message));
  const wait=()=>p.waitForTimeout(180);
  await p.goto('http://127.0.0.1:8771/login/');await p.locator('[name=username]').fill('demo-owner');await p.locator('[name=password]').fill(password);await p.getByRole('button',{name:'تسجيل الدخول',exact:true}).click();await p.waitForSelector('.metrics');
+ assert.equal(await p.locator('#nav .nav-section').count(),3);
  const pages=[];
  for(const id of ['dashboard','calendar','reservations','today','units','guests','housekeeping','payments','invoices','balances','reports','users','settings','audit','profile']){
   await p.evaluate(id=>location.hash=id,id);await wait();assert(await p.locator('#page h1').isVisible());pages.push(id);
@@ -30,11 +31,12 @@ async function main(){
  async function open(form,id){await p.evaluate(({form,id})=>openForm(form,id),{form,id});await p.waitForSelector('dialog[open]');}
  async function fill(values){for(const [k,v]of Object.entries(values)){const el=p.locator(`#modalform [name="${k}"]`);const tag=await el.evaluate(e=>e.tagName);if(tag==='SELECT')await el.selectOption(String(v));else await el.fill(String(v));}}
  async function save(){await p.locator('#save').click();await p.waitForFunction(()=>!document.querySelector('#modal').open,{},{timeout:5000});await wait();}
- await open('guest');await fill({name:'نزيل فحص الواجهة',phone:'0500000000'});await save();
+ await open('booking');await p.locator('#booking-add-guest').click();await fill({name:'نزيل فحص الواجهة',phone:'0500000000'});await p.locator('#save').click();await p.waitForSelector('#stay-nights');assert.equal(await p.locator('#modal-title').textContent(),'حجز جديد');await p.locator('#close-modal').click();
  await open('unit');await fill({number:'UI-901',kind:'استوديو اختبار',floor:'الأول',capacity:2,rate:150});await save();
  await open('unit');await fill({number:'UI-902',kind:'استوديو اختبار',floor:'الأول',capacity:2,rate:150});await save();
  let state=await p.evaluate(()=>S);const guest=state.guests.find(x=>x.name==='نزيل فحص الواجهة'),u=state.units.find(x=>x.number==='UI-901'),v=state.units.find(x=>x.number==='UI-902');
- await open('booking');await fill({guest:guest.id,unit:u.id,arrival:state.today,departure:await p.evaluate(()=>addDays(S.today,2)),rate:150,persons:2});await save();
+ await open('booking');await fill({guest:guest.id,unit:u.id,arrival:state.today,rate:150,persons:2});await p.locator('[data-nights="7"]').click();assert.equal(await p.locator('#stay-nights').inputValue(),'7');await p.locator('#stay-nights').fill('2');assert.equal(await p.locator('[name=departure]').inputValue(),await p.evaluate(()=>addDays(S.today,2)));assert((await p.locator('#booking-summary').textContent()).includes(await p.evaluate(()=>money(34500))));await save();
+ await p.evaluate(()=>location.hash='reservations');await wait();await p.locator('#reservation-status').selectOption('checked_out');assert.equal(await p.locator('#page button[data-open=detail]').count(),0);await p.locator('#reservation-status').selectOption('');
  state=await p.evaluate(()=>S);let r=state.reservations.find(x=>x.guest===guest.id);assert.equal(r.total,34500);
  await open('booking');await fill({guest:guest.id,unit:u.id,arrival:state.today,departure:await p.evaluate(()=>addDays(S.today,1)),rate:150,persons:2});await p.locator('#save').click();await p.waitForSelector('#form-error:not(:empty)');assert((await p.locator('#form-error').textContent()).includes('محجوزة'));await p.locator('#close-modal').click();
  p.on('dialog',d=>d.accept());await open('detail',r.id);await p.locator('dialog [data-action="checkin"]').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await wait();

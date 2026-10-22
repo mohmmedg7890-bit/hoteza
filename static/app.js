@@ -1,15 +1,20 @@
 'use strict';
-let S=null, page='dashboard', search='', reportData=null, selected=0, modalAction=null, modalTransform=null, operationKey=null, calendarStart='';
+let S=null, page='dashboard', search='', reportData=null, selected=0, modalAction=null, modalTransform=null, operationKey=null, calendarStart='', reservationStatus='', reservationSource='', pendingBooking=null;
 const $=s=>document.querySelector(s), esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>(Number(n||0)/100).toLocaleString('ar-SA',{minimumFractionDigits:2,maximumFractionDigits:2});
 const addDays=(s,n)=>{const d=new Date(s+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)};
 const labels={confirmed:'مؤكد',checked_in:'مقيم',checked_out:'مغادر',cancelled:'ملغى',no_show:'لم يحضر',ready:'جاهزة',dirty:'تحتاج تنظيفًا',cleaning:'قيد التنظيف',invoice:'فاتورة',credit:'إشعار دائن',debit:'إشعار مدين',owner:'مالك',reception:'استقبال'};
 const nav=[['dashboard','لوحة المعلومات'],['calendar','تقويم الوحدات'],['reservations','الحجوزات'],['today','حركة اليوم'],['units','الوحدات'],['guests','النزلاء'],['housekeeping','النظافة والصيانة'],['payments','التحصيل والسندات'],['invoices','الفواتير'],['balances','التسويات والمديونيات'],['reports','التقارير'],['users','المستخدمون'],['settings','الإعدادات'],['audit','سجل العمليات'],['profile','حسابي']];
+const navGroups=[['مساحة العمل',['dashboard','reservations','calendar','today']],['الاستقبال والحسابات',['guests','payments','invoices','balances','reports']],['إدارة العقار',['units','housekeeping','users','settings','audit','profile']]];
+const iconPaths={dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',calendar:'M4 5h16v16H4z M8 3v4 M16 3v4 M4 11h16',reservations:'M5 3h14v18H5z M8 8h8 M8 12h8 M8 16h5',today:'M4 7h16l-4-4 M20 17H4l4 4 M4 7v5 M20 17v-5',units:'M3 21V5l9-2v18 M12 9h9v12 M7 7v2 M7 12v2 M16 13h2 M16 17h2',guests:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2 M9 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M17 4a4 4 0 0 1 0 8 M22 21v-2a4 4 0 0 0-3-4',reports:'M4 3v18h17 M8 16v-4 M13 16V8 M18 16V5',default:'M4 7h16 M4 17h16 M9 4v6 M15 14v6'};
+function navIcon(id){return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${iconPaths[id]||iconPaths.default}"/></svg>`}
+function workspaceTabs(){return `<div class="tabs workspace-tabs">${[['reservations','الحجوزات'],['calendar','تقويم الوحدات'],['today','الوصول والمغادرة'],['units','حالة الوحدات']].map(([id,n])=>`<a class="button ${page===id?'primary':''}" href="#${id}">${n}</a>`).join('')}</div>`}
+function operationShortcuts(){return `<div class="operation-shortcuts">${[['booking','حجز جديد','إنشاء إقامة وتخصيص وحدة'],['payment','تسجيل تحصيل','قبض دفعة وإصدار سند'],['invoice','إصدار فاتورة','مراجعة رسوم الإقامة']].map(([form,n,d])=>`<button data-open="${form}"><strong>${n}</strong><small>${d}</small><span aria-hidden="true">←</span></button>`).join('')}<a href="#today"><strong>الوصول والمغادرة</strong><small>التسكين والتسوية والتمديد</small><span aria-hidden="true">←</span></a></div>`}
 function csrf(){return document.cookie.split('; ').find(x=>x.startsWith('csrftoken='))?.split('=')[1]||''}
 async function request(url,opts={}){const r=await fetch(url,{credentials:'same-origin',...opts});if(r.status===401){location.href='/login/';throw Error('انتهت الجلسة')}let d;try{d=await r.json()}catch{throw Error('تعذر قراءة استجابة الخادم')}if(!r.ok)throw Error(d.error||'تعذر إتمام العملية');return d}
 async function mutate(action,data,key=crypto.randomUUID()){return request('/api/action/'+action+'/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':csrf(),'Idempotency-Key':key},body:JSON.stringify(data)})}
 function toast(s){$('#toast').textContent=s;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4000)}
-async function load(){S=await request('/api/state/');$('#property').value=S.property.id;$('#identity').textContent=S.user+' · '+labels[S.role];render()}
+async function load(){S=await request('/api/state/');$('#property').value=S.property.id;$('#identity').textContent=S.user+' · '+labels[S.role];$('#property-name').textContent=S.property.name;render()}
 function tag(s){return `<span class="tag ${['ready','checked_in'].includes(s)?'green':['cancelled','dirty'].includes(s)?'red':''}">${esc(labels[s]||s)}</span>`}
 function btn(label,action,data={},cls=''){return `<button class="${cls}" data-action="${esc(action)}" data-payload="${esc(JSON.stringify(data))}">${esc(label)}</button>`}
 function openBtn(label,form,id=''){return `<button data-open="${form}" data-id="${id}">${esc(label)}</button>`}
@@ -27,19 +32,19 @@ function occupied(u,date=S.today){return S.reservations.find(r=>!['cancelled','n
 function reportHTML(r){return `<div class="metrics">${[['الإشغال',r.occupancy+'%'],['الليالي المباعة',r.sold],['الإيراد قبل الضريبة',money(r.net)],['صافي التحصيل',money(r.paid)],['الطاقة بالليالي',r.capacity],['الضريبة',money(r.tax)],['ADR قبل الضريبة',money(r.adr)],['RevPAR قبل الضريبة',money(r.revpar)]].map(([k,v])=>`<div class="metric">${k}<strong>${v}</strong></div>`).join('')}</div>`+table(['اليوم','الطاقة','المباع','الإيراد قبل الضريبة','الضريبة','صافي التحصيل'],r.rows.map(x=>[x.date,x.available,x.sold,money(x.net),money(x.tax),money(x.paid)]))+`<h2>بحسب مصدر الحجز</h2>`+table(['المصدر','الليالي','الإيراد قبل الضريبة','الضريبة'],r.by_source.map(x=>[esc(x.source),x.sold,money(x.net),money(x.tax)]))+`<h2>أداء الوحدات — يشمل الفارغة</h2>`+table(['الوحدة','النوع','الطاقة','المباع','الإشغال %','الإيراد قبل الضريبة','الضريبة'],r.by_unit.map(x=>[esc(x.number),esc(x.kind),x.capacity,x.sold,x.capacity?(100*x.sold/x.capacity).toFixed(2):'0',money(x.net),money(x.tax)]))}
 function render(){
  if(!S)return;page=(location.hash.slice(1).split('?')[0]||'dashboard');const title=nav.find(n=>n[0]===page)?.[1]||'لوحة المعلومات';
- $('#nav').innerHTML=nav.filter(([id])=>S.role==='owner'||!['users','settings','audit'].includes(id)).map(([id,n])=>`<a href="#${id}" class="navitem ${page===id?'active':''}">${n}</a>`).join('');$('#breadcrumb').textContent=title;document.title=title+' | Hoteza';
+ $('#nav').innerHTML=navGroups.map(([group,ids])=>`<div class="nav-section">${group}</div>`+ids.filter(id=>S.role==='owner'||!['users','settings','audit'].includes(id)).map(id=>`<a href="#${id}" class="navitem ${page===id?'active':''}" ${page===id?'aria-current="page"':''}>${navIcon(id)}<span>${nav.find(n=>n[0]===id)[1]}</span></a>`).join('')).join('');$('#breadcrumb').textContent=title;document.title=title+' | Hoteza';
  let h='';
  if(page==='dashboard'){
  const arriving=S.reservations.filter(r=>r.arrival===S.today&&r.status==='confirmed'),leaving=S.reservations.filter(r=>r.departure<=S.today&&r.status==='checked_in'),inhouse=S.reservations.filter(r=>r.status==='checked_in');
- h=head('التشغيل تحت السيطرة',esc(S.property.name)+' · '+S.today,openBtn('حجز جديد','booking'));
+ h=head('نظرة عامة',esc(S.property.name)+' · '+S.today,openBtn('حجز جديد','booking'))+operationShortcuts();
  h+=`<div class="metrics">${[['إشغال الليالي اليوم',S.report.occupancy+'%','reports'],['المقيمون الآن',inhouse.length,'today'],['وصول اليوم',arriving.length,'today'],['مغادرة مستحقة',leaving.length,'today'],['تحصيل اليوم',money(S.report.paid),'payments'],['مديونيات الحجوزات',money(S.reservations.reduce((n,r)=>n+Math.max(r.balance,0),0)),'balances'],['جاهزة وغير محجوزة',S.units.filter(u=>u.active&&u.cleaning==='ready'&&!occupied(u)&&!S.blocks.some(b=>b.unit_id===u.id&&b.start<=S.today&&b.end>S.today)).length,'units'],['تحتاج تنظيفًا',S.units.filter(u=>u.cleaning==='dirty').length,'housekeeping']].map(([k,v,to])=>`<button class="metric" data-go="${to}">${k}<strong>${v}</strong><small>عرض التفاصيل ←</small></button>`).join('')}</div>`;
  h+=`<div class="card"><h2>الوصول المتوقع اليوم</h2>${resTable(arriving)}</div><br><div class="card"><h2>المغادرة والمتأخرون</h2>${resTable(leaving)}</div>`;
- } else if(page==='reservations'){h=head(title,'من أول حجز إلى إقفال حساب الإقامة',openBtn('حجز جديد','booking'))+searchbar()+resTable(filtered(S.reservations))+exportsBar('reservations');
+ } else if(page==='reservations'){h=head(title,'من أول حجز إلى إقفال حساب الإقامة',openBtn('حجز جديد','booking'))+workspaceTabs()+searchbar()+`<div class="toolbar reservation-filters"><label>الحالة<select id="reservation-status"><option value="">كل الحالات</option>${['confirmed','checked_in','checked_out','cancelled','no_show'].map(v=>`<option value="${v}" ${reservationStatus===v?'selected':''}>${labels[v]}</option>`).join('')}</select></label><label>مصدر الحجز<select id="reservation-source"><option value="">كل المصادر</option>${[...new Set(S.reservations.map(r=>r.source))].sort().map(v=>`<option value="${esc(v)}" ${reservationSource===v?'selected':''}>${esc(v)}</option>`).join('')}</select></label></div>`+resTable(filtered(S.reservations).filter(r=>(!reservationStatus||r.status===reservationStatus)&&(!reservationSource||r.source===reservationSource)))+exportsBar('reservations');
  } else if(page==='today'){
- h=head(title,'قوائم مشتقة من الحجوزات نفسها؛ افتح الحجز لتنفيذ العملية');
+ h=head('مركز العمليات','الوصول والمقيمون والمغادرة من ملف حجز واحد')+workspaceTabs()+operationShortcuts();
  const groups=[['الوصول المتوقع',r=>r.arrival===S.today&&r.status==='confirmed'],['المقيمون',r=>r.status==='checked_in'],['المغادرة اليوم',r=>r.departure===S.today&&r.status==='checked_in'],['متأخرون عن المغادرة',r=>r.departure<S.today&&r.status==='checked_in'],['وصول سابق لم يسكن',r=>r.arrival<S.today&&r.status==='confirmed']];h+=groups.map(([n,f])=>`<section class="card"><h2>${n}</h2>${resTable(S.reservations.filter(f))}</section><br>`).join('');
  } else if(page==='calendar'){
- let start=calendarStart||S.today;const ds=Array.from({length:14},(_,i)=>addDays(start,i));h=head(title,'14 يومًا · اضغط الحجز لفتحه أو المساحة المتاحة لإنشائه')+`<div class="toolbar"><label>بداية العرض<input id="calendar-start" type="date" value="${start}"></label></div><div class="tablewrap calendar"><table><thead><tr><th>الوحدة</th>${ds.map(d=>`<th>${d.slice(5)}</th>`).join('')}</tr></thead><tbody>${S.units.filter(u=>u.active).map(u=>'<tr><th>'+esc(u.number)+'<small> '+esc(u.kind)+'</small></th>'+ds.map(d=>{const r=occupied(u,d),b=S.blocks.find(b=>b.unit_id===u.id&&b.start<=d&&b.end>d);return `<td class="${r?'stay':b?'maintenance':''}">${r?openBtn(r.guest_name,'detail',r.id):b?esc(b.reason):`<button data-open="booking" data-unit="${u.id}" data-date="${d}">＋</button>`}</td>`}).join('')+'</tr>').join('')}</tbody></table></div>`;
+ let start=calendarStart||S.today;const ds=Array.from({length:14},(_,i)=>addDays(start,i));h=head(title,'14 يومًا · اضغط الحجز لفتحه أو المساحة المتاحة لإنشائه')+workspaceTabs()+`<div class="toolbar"><label>بداية العرض<input id="calendar-start" type="date" value="${start}"></label></div><div class="tablewrap calendar"><table><thead><tr><th>الوحدة</th>${ds.map(d=>`<th>${d.slice(5)}</th>`).join('')}</tr></thead><tbody>${S.units.filter(u=>u.active).map(u=>'<tr><th>'+esc(u.number)+'<small> '+esc(u.kind)+'</small></th>'+ds.map(d=>{const r=occupied(u,d),b=S.blocks.find(b=>b.unit_id===u.id&&b.start<=d&&b.end>d);return `<td class="${r?'stay':b?'maintenance':''}">${r?openBtn(r.guest_name,'detail',r.id):b?esc(b.reason):`<button data-open="booking" data-unit="${u.id}" data-date="${d}">＋</button>`}</td>`}).join('')+'</tr>').join('')}</tbody></table></div>`;
  } else if(page==='units'){
  h=head(title,'الطوابق والأنواع والسعة وحالة تجهيز الوحدة',S.role==='owner'?openBtn('إضافة وحدة','unit'):'')+searchbar()+`<div class="unitgrid">${S.units.filter(u=>[u.number,u.kind,u.floor].join(' ').includes(search)).map(u=>{const r=occupied(u);return `<div class="unitcard ${r?'busy':u.cleaning==='dirty'?'dirty':''}"><strong>${esc(u.number)}</strong><small>${esc(u.kind)} · ${esc(u.floor)}</small>${tag(u.cleaning)}<p>${money(u.rate)} ر.س / ليلة · سعة ${u.capacity}</p>${r?openBtn('الحجز #'+r.id,'detail',r.id):'<small>راجع التقويم للتوافر</small>'}${S.role==='owner'?openBtn('تعديل','unit',u.id):''}${!u.active?tag('مؤرشفة'):''}</div>`}).join('')}</div>`;
  } else if(page==='guests'){
@@ -83,10 +88,10 @@ function openForm(form,id='',extra={}){
  const r=S.reservations.find(r=>r.id==id),u=S.units.find(u=>u.id==id),g=S.guests.find(g=>g.id==id);let f='',title='',action='',data={};modalTransform=null;
  const ff=field;
  if(form==='detail'){
- if(!r)return;$('#modal-title').textContent='الحجز #'+r.id+' · '+r.guest_name;$('#fields').innerHTML=detail(r);$('#save').hidden=true;modalAction=null;$('#form-error').textContent='';$('#modal').showModal();return;
+ $('#modal').classList.remove('booking-dialog');if(!r)return;$('#modal-title').textContent='الحجز #'+r.id+' · '+r.guest_name;$('#fields').innerHTML=detail(r);$('#save').hidden=true;modalAction=null;$('#form-error').textContent='';$('#modal').showModal();return;
  }
  if(form==='guest_detail'){
- if(!g)return;$('#modal-title').textContent=g.name;$('#fields').innerHTML=resTable(S.reservations.filter(r=>r.guest===g.id));$('#save').hidden=true;modalAction=null;$('#modal').showModal();return;
+ $('#modal').classList.remove('booking-dialog');if(!g)return;$('#modal-title').textContent=g.name;$('#fields').innerHTML=resTable(S.reservations.filter(r=>r.guest===g.id));$('#save').hidden=true;modalAction=null;$('#modal').showModal();return;
  }
  if(['booking','edit'].includes(form)){
  if(!S.guests.length){toast('أضف نزيلًا أولًا');openForm('guest');return}if(!S.units.some(u=>u.active)){toast('أضف وحدة أولًا');return}
@@ -120,22 +125,46 @@ function openForm(form,id='',extra={}){
  } else if(form==='subscription'){
  title='تجديد الاشتراك — مشغل النظام';action='subscription';f=ff('until','حتى تاريخ','date',addDays(S.today,30));
  } else return;
- modalAction={action,data};operationKey=crypto.randomUUID();$('#modal-title').textContent=title;$('#fields').innerHTML='<div class="formgrid">'+f+'</div>';$('#form-error').textContent='';$('#save').hidden=false;$('#save').textContent=form==='checkout'?'تأكيد المغادرة':'حفظ';$('#modal').showModal();
+ modalAction={action,data};operationKey=crypto.randomUUID();$('#modal-title').textContent=title;$('#fields').innerHTML='<div class="formgrid">'+f+'</div>';$('#modal').classList.toggle('booking-dialog',['booking','edit'].includes(form));if(['booking','edit'].includes(form))enhanceBooking(r);$('#form-error').textContent='';$('#save').hidden=false;$('#save').textContent=form==='checkout'?'تأكيد المغادرة':'حفظ';$('#modal').showModal();
+}
+function enhanceBooking(r){
+ const grid=$('#fields .formgrid'), guest=grid.querySelector('[name=guest]').closest('label');
+ const section=document.createElement('section');section.className='booking-section';section.innerHTML='<h3><span>01</span> النزيل</h3><div class="formgrid"></div>';
+ section.querySelector('.formgrid').appendChild(guest);
+ const add=document.createElement('button');add.type='button';add.id='booking-add-guest';add.textContent='＋ إضافة نزيل جديد';section.querySelector('.formgrid').appendChild(add);
+ $('#fields').prepend(section);
+ const stay=document.createElement('section');stay.className='booking-section';stay.innerHTML='<h3><span>02</span> بيانات الحجز والإقامة</h3>';grid.before(stay);stay.appendChild(grid);
+ const nights=document.createElement('label');nights.innerHTML='عدد الليالي<input id="stay-nights" type="number" min="1" max="730" step="1">';grid.querySelector('[name=departure]').closest('label').before(nights);
+ const controls=document.createElement('div');controls.className='booking-duration';controls.innerHTML='<span>مدة سريعة</span>'+[[1,'ليلة'],[7,'أسبوع'],[30,'30 ليلة']].map(([n,t])=>`<button type="button" data-nights="${n}">${t}</button>`).join('');stay.appendChild(controls);
+ const summary=document.createElement('div');summary.id='booking-summary';summary.className='booking-live-summary';summary.setAttribute('role','status');stay.appendChild(summary);updateBookingSummary();
+}
+function updateBookingSummary(){
+ if(!$('#booking-summary'))return;
+ const form=$('#modalform'),a=form.elements.arrival.value,d=form.elements.departure.value,rate=Number(form.elements.rate.value),unit=S.units.find(u=>u.id==form.elements.unit.value);
+ const nights=Math.round((Date.parse(d+'T12:00:00Z')-Date.parse(a+'T12:00:00Z'))/86400000);$('#stay-nights').value=Number.isFinite(nights)&&nights>0?nights:'';
+ if(!a||!d||!Number.isFinite(nights)||nights<1||!Number.isFinite(rate)||rate<0){$('#booking-summary').textContent='اختر تواريخ صحيحة وسعر الليلة لمراجعة المدة والإجمالي.';return}
+ const net=Math.round(rate*100),tax=Math.floor(net*Number(S.property.tax_rate)/100+.5),id=modalAction?.data?.id;
+ const busy=S.reservations.some(r=>r.id!==id&&!['cancelled','no_show'].includes(r.status)&&r.allocations.some(x=>x.unit===unit?.id&&x.start<d&&x.end>a));
+ const blocked=S.blocks.some(b=>b.unit_id===unit?.id&&b.start<d&&b.end>a);
+ $('#booking-summary').innerHTML=`<div><small>مدة الإقامة</small><strong>${nights} ليلة</strong></div><div><small>قبل الضريبة</small><strong>${money(net*nights)} ر.س</strong></div><div><small>شامل الضريبة</small><strong>${money((net+tax)*nights)} ر.س</strong></div><p class="${busy||blocked?'error':''}">${busy?'الوحدة محجوزة خلال الفترة؛ اختر وحدة أخرى.':blocked?'الوحدة محجوبة للصيانة خلال الفترة.':'سيُفحص توافر الوحدة مجددًا عند الحفظ.'}</p>`;
 }
 function updateExportLinks(){document.querySelectorAll('a.export').forEach(a=>{if(a.dataset.dataset==='reports'){const q=new URLSearchParams({start:$('#report-start')?.value||S.today,end:$('#report-end')?.value||addDays(S.today,1)});a.href=a.href.split('?')[0]+'?'+q}})}
 document.addEventListener('click',async e=>{
  const el=e.target.closest('button,a');if(!el)return;
  if(el.dataset.open){e.preventDefault();if($('#modal').open)$('#modal').close();openForm(el.dataset.open,el.dataset.id,{unit:el.dataset.unit,date:el.dataset.date});}
  if(el.dataset.go)location.hash=el.dataset.go;
+ if(el.id==='refresh-state'){el.disabled=true;try{await load();toast('تم تحديث البيانات')}catch(err){toast(err.message)}finally{el.disabled=false}}
+ if(el.id==='booking-add-guest'){pendingBooking={values:Object.fromEntries(new FormData($('#modalform'))),guestIds:S.guests.map(g=>g.id)};$('#modal').close();openForm('guest');}
+ if(el.dataset.nights){const f=$('#modalform');if(f.elements.arrival.value){f.elements.departure.value=addDays(f.elements.arrival.value,Number(el.dataset.nights));updateBookingSummary()}}
  if(el.hasAttribute('data-print'))window.print();
  if(el.dataset.action){if(!confirm('تأكيد تنفيذ العملية؟'))return;el.disabled=true;try{await mutate(el.dataset.action,JSON.parse(el.dataset.payload));await load();if($('#modal').open)$('#modal').close();toast('تم تنفيذ العملية')}catch(err){toast(err.message)}finally{el.disabled=false}}
  if(el.id==='run-report'){try{reportData=await request('/api/reports/?'+new URLSearchParams({start:$('#report-start').value,end:$('#report-end').value}));$('#report-result').innerHTML=reportHTML(reportData);updateExportLinks()}catch(err){toast(err.message)}}
 });
-$('#modalform').addEventListener('submit',async e=>{e.preventDefault();if(!modalAction)return;$('#save').disabled=true;let d={...Object.fromEntries(new FormData(e.target)),...modalAction.data};if(modalTransform)d=modalTransform(d);try{await mutate(modalAction.action,d,operationKey);$('#modal').close();await load();toast('تم الحفظ وتحديث الشاشات')}catch(err){$('#form-error').textContent=err.message}finally{$('#save').disabled=false}});
-$('#close-modal').onclick=$('#cancel-modal').onclick=()=>$('#modal').close();
+$('#modalform').addEventListener('submit',async e=>{e.preventDefault();if(!modalAction)return;$('#save').disabled=true;let d={...Object.fromEntries(new FormData(e.target)),...modalAction.data};if(modalTransform)d=modalTransform(d);try{await mutate(modalAction.action,d,operationKey);$('#modal').close();await load();toast('تم الحفظ وتحديث الشاشات');if(pendingBooking&&modalAction.action==='guest_save'){const draft=pendingBooking;pendingBooking=null;openForm('booking');for(const [k,v] of Object.entries(draft.values)){const el=$('#modalform').elements[k];if(el)el.value=v}const guest=S.guests.find(g=>!draft.guestIds.includes(g.id));if(guest)$('#modalform [name=guest]').value=guest.id;updateBookingSummary();}}catch(err){$('#form-error').textContent=err.message}finally{$('#save').disabled=false}});
+$('#close-modal').onclick=$('#cancel-modal').onclick=()=>{pendingBooking=null;$('#modal').close()};
 $('#menu').onclick=()=>$('#sidebar').classList.toggle('open');
 $('#property').onchange=async e=>{try{await mutate('select_property',{id:e.target.value});reportData=null;search='';await load()}catch(err){toast(err.message)}};
-document.addEventListener('input',e=>{if(e.target.id==='search'){const pos=e.target.selectionStart;search=e.target.value;render();$('#search')?.focus();$('#search')?.setSelectionRange(pos,pos)}});
-document.addEventListener('change',e=>{if(e.target.id==='calendar-start'){calendarStart=e.target.value;render()}if(['report-start','report-end'].includes(e.target.id))updateExportLinks()});
+document.addEventListener('input',e=>{if(e.target.id==='stay-nights'){const f=$('#modalform'),n=Number(e.target.value);if(f.elements.arrival.value&&Number.isInteger(n)&&n>0&&n<=730){f.elements.departure.value=addDays(f.elements.arrival.value,n);updateBookingSummary()}}else if(['arrival','departure','rate'].includes(e.target.name))updateBookingSummary();if(e.target.id==='search'){const pos=e.target.selectionStart;search=e.target.value;render();$('#search')?.focus();$('#search')?.setSelectionRange(pos,pos)}});
+document.addEventListener('change',e=>{if(e.target.name==='unit')updateBookingSummary();if(e.target.id==='reservation-status'){reservationStatus=e.target.value;render()}if(e.target.id==='reservation-source'){reservationSource=e.target.value;render()}if(e.target.id==='calendar-start'){calendarStart=e.target.value;render()}if(['report-start','report-end'].includes(e.target.id))updateExportLinks()});
 window.addEventListener('hashchange',()=>{search='';reportData=null;$('#sidebar').classList.remove('open');render()});
 load().catch(e=>{$('#page').textContent=e.message});
