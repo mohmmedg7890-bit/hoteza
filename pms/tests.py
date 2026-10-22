@@ -34,11 +34,43 @@ class PMSCase(TestCase):
         return Reservation.objects.get(pk=self.op('reservation_create',d)['id'])
     def api(self,action,d,key=None):return self.client.post('/api/action/'+action+'/',data=json.dumps(d),content_type='application/json',HTTP_IDEMPOTENCY_KEY=key or str(uuid.uuid4()))
     def test_strict_guest_fields_and_saudi_normalization(self):
-        valid={'name':'محمد أحمد','phone':'٠٥٠٠٠٠٠٠٠٠','email':'guest@example.com','region':'عسير','city':'أبها','street':'شارع الاختبار'}
+        valid={'first_name':'محمد','last_name':'أحمد','gender':'male','birth_date':'1990-01-01','nationality':'السعودية','customer_type':'citizen','id_type':'national_id','id_number':'1000000000','phone':'٠٥٠٠٠٠٠٠٠٠','email':'guest@example.com','region':'عسير','city':'أبها','street':'شارع الاختبار'}
         response=self.api('guest_save',valid);self.assertEqual(response.status_code,200)
         self.assertEqual(Guest.objects.get(pk=response.json()['id']).phone,'+966500000000')
-        for key,value in [('name','محمد'),('name','محمد 123'),('phone','+9660500000000'),('phone','051'),('email','invalid'),('region',''),('city',''),('street','')]:
+        for key,value in [('first_name',''),('last_name','123'),('phone','+9660500000000'),('phone','051'),('email','invalid'),('region',''),('city',''),('street','')]:
             with self.subTest(key=key,value=value):self.assertEqual(self.api('guest_save',{**valid,key:value}).status_code,400)
+    def profile_data(self,**extra):
+        return {'first_name':'محمد','second_name':'أحمد','last_name':'علي','first_name_en':'Mohammed','phone':'0500000000','email':'guest@example.com','region':'عسير','city':'أبها','street':'عنوان الاختبار','gender':'male','birth_date':'1990-01-01','nationality':'السعودية','customer_type':'citizen','id_type':'national_id','id_number':'1000000000',**extra}
+    def test_profile_identity_birth_and_optional_fields(self):
+        data=self.profile_data(workplace='شركة الاختبار',vehicle_plate='أ ب ج 123')
+        response=self.api('guest_save',data);self.assertEqual(response.status_code,200)
+        guest=Guest.objects.get(pk=response.json()['id']);self.assertEqual(guest.name,'محمد أحمد علي')
+        self.assertEqual(guest.profile['first_name_en'],'Mohammed');self.assertTrue(guest.profile['birth_hijri'].startswith('1410-'))
+        state=self.client.get('/api/state/').json();saved=next(g for g in state['guests'] if g['id']==guest.pk)
+        self.assertEqual(saved['id_number'],'1000000000');self.assertNotIn('photo',saved)
+        for extra in [{'gender':''},{'birth_date':'2099-01-01'},{'birth_date':'1900-01-01'},{'nationality':''},{'customer_type':'invalid'},{'id_type':'iqama'},{'id_number':'123'},{'birth_hijri':'1400-01-01'},{'first_name_en':'محمد'}]:
+            with self.subTest(extra=extra):self.assertEqual(self.api('guest_save',self.profile_data(**extra)).status_code,400)
+        self.assertEqual(self.client.get('/api/birth-date/?date=1990-01-01').json()['birth_hijri'],guest.profile['birth_hijri'])
+        self.assertEqual(self.client.get('/api/birth-date/?date=2099-01-01').status_code,400)
+    def test_photo_persist_scoped_and_removable(self):
+        import base64
+        from PIL import Image
+        image=io.BytesIO();Image.new('RGB',(400,300),'blue').save(image,format='JPEG')
+        data='data:image/jpeg;base64,'+base64.b64encode(image.getvalue()).decode()
+        response=self.api('guest_save',self.profile_data(photo_data=data,show_photo=True));self.assertEqual(response.status_code,200)
+        pk=response.json()['id'];photo=self.client.get(f'/api/guest-photo/{pk}/')
+        self.assertEqual(photo.status_code,200);self.assertEqual(photo['Content-Type'],'image/jpeg');self.assertIn('no-store',photo['Cache-Control'])
+        self.client.force_login(self.other);self.assertEqual(self.client.get(f'/api/guest-photo/{pk}/').status_code,404)
+        self.client.force_login(self.owner)
+        self.assertEqual(self.api('guest_save',self.profile_data(id=pk,photo_data='')).status_code,200)
+        self.assertEqual(self.client.get(f'/api/guest-photo/{pk}/').status_code,404)
+        self.assertEqual(self.api('guest_save',self.profile_data(photo_data='data:image/jpeg;base64,bad')).status_code,400)
+    def test_report_export_selected_view(self):
+        self.book();params=f'?start={self.today}&end={self.today+timedelta(days=3)}'
+        for view,heading,excluded in [('units','الوحدة','المصدر'),('sources','المصدر','الوحدة'),('daily','التاريخ','الوحدة')]:
+            response=self.client.get('/export/reports/json/'+params+'&view='+view);self.assertEqual(response.status_code,200)
+            rows=response.json()['rows'];self.assertTrue(any(row[0]==heading for row in rows));self.assertFalse(any(row[0]==excluded for row in rows))
+
     def test_expected_times_validate_and_guest_update_rolls_back(self):
         bad=self.api('reservation_create',{'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=1)),'arrival_time':'29:00'})
         self.assertEqual(bad.status_code,400);self.assertEqual(Reservation.objects.count(),0)

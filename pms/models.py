@@ -38,6 +38,9 @@ class Guest(models.Model):
     region = models.CharField(max_length=100,blank=True)
     city = models.CharField(max_length=100,blank=True)
     street = models.CharField(max_length=300,blank=True)
+    profile = models.JSONField(default=dict,blank=True)
+    photo = models.BinaryField(null=True,blank=True)
+    show_photo = models.BooleanField(default=False)
 
 class Reservation(models.Model):
     property = models.ForeignKey(Property,on_delete=models.PROTECT)

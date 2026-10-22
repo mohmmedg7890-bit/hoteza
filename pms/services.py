@@ -9,7 +9,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
-from .validation import guest_fields,expected_time
+from .validation import guest_fields,expected_time,guest_profile,guest_photo
 from .models import Property, Membership, Unit, Guest, Reservation, Allocation, Block, Charge, Payment, Invoice, Audit, Operation
 
 class RuleError(Exception):
@@ -118,7 +118,11 @@ def perform(user, prop_id, action, d, key):
     result = {}
     if action == 'guest_save':
         g = owned(Guest,prop,d['id']) if d.get('id') else Guest(property=prop)
-        for field,value in guest_fields(d).items():setattr(g,field,value)
+        fields,profile=guest_profile(d)
+        for field,value in fields.items():setattr(g,field,value)
+        g.profile=profile
+        g.show_photo=d.get('show_photo') is True
+        if 'photo_data' in d:g.photo=guest_photo(d['photo_data']) if d['photo_data'] else None
         g.full_clean(); g.save(); result={'id':g.pk}
     elif action == 'unit_save':
         u = owned(Unit,prop,d['id']) if d.get('id') else Unit(property=prop)

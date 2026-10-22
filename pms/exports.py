@@ -53,9 +53,18 @@ def build_export(request,prop,dataset,fmt,role):
         rows=[['السند','الحجز','المبلغ','الطريقة','المرجع','التاريخ']]+[[p.pk,p.reservation_id,cash(p.amount),p.method,p.reference,timezone.localtime(p.created_at).isoformat()] for p in Payment.objects.filter(reservation__property=prop)]
     elif dataset=='reports':
         start=day(request.GET.get('start',timezone.localdate()));end=day(request.GET.get('end',start+timedelta(days=1)));r=report(prop,start,end)
-        rows=[['المنشأة',prop.name],['بداية الفترة',str(start)],['نهاية الفترة - غير مشمولة',str(end)],['الطاقة المتاحة',r['capacity']],['الليالي المباعة',r['sold']],['الإشغال %',r['occupancy']],['الإيراد قبل الضريبة',cash(r['net'])],['الضريبة',cash(r['tax'])],['صافي التحصيل',cash(r['paid'])],['ADR قبل الضريبة',cash(r['adr'])],['RevPAR قبل الضريبة',cash(r['revpar'])],['التاريخ','الطاقة','المباع','الإيراد','الضريبة','التحصيل']]+[[x['date'],x['available'],x['sold'],cash(x['net']),cash(x['tax']),cash(x['paid'])] for x in r['rows']]
-        rows += [['المصدر','الليالي','الإيراد','الضريبة']]+[[x['source'],x['sold'],cash(x['net']),cash(x['tax'])] for x in r['by_source']]
-        rows += [['الوحدة','النوع','الطاقة','الليالي','الإيراد','الضريبة']]+[[x['number'],x['kind'],x['capacity'],x['sold'],cash(x['net']),cash(x['tax'])] for x in r['by_unit']]
+        view=request.GET.get('view','overview')
+        titles={'overview':'الملخص التشغيلي','daily':'الحركة اليومية','units':'أداء الوحدات','sources':'مصادر الحجوزات'}
+        if view not in titles:raise RuleError('نوع التقرير غير معروف')
+        title=titles[view]+' — Hoteza'
+        rows=[['المنشأة',prop.name],['التقرير',titles[view]],['بداية الفترة',str(start)],['نهاية الفترة - غير مشمولة',str(end)],['العملة',prop.currency],['الطاقة المتاحة',r['capacity']],['الليالي المباعة',r['sold']],['الإشغال %',r['occupancy']],['الإيراد قبل الضريبة',cash(r['net'])],['الضريبة',cash(r['tax'])],['صافي التحصيل',cash(r['paid'])],['ADR قبل الضريبة',cash(r['adr'])],['RevPAR قبل الضريبة',cash(r['revpar'])]]
+        if view in ['overview','daily']:
+            rows += [['التاريخ','الطاقة','المباع','الإيراد','الضريبة','التحصيل']]+[[x['date'],x['available'],x['sold'],cash(x['net']),cash(x['tax']),cash(x['paid'])] for x in r['rows']]
+            rows += [['الإجمالي',r['capacity'],r['sold'],cash(r['net']),cash(r['tax']),cash(r['paid'])]]
+        if view in ['overview','sources']:
+            rows += [['المصدر','الليالي','الإيراد','الضريبة']]+[[x['source'],x['sold'],cash(x['net']),cash(x['tax'])] for x in r['by_source']]
+        if view in ['overview','units']:
+            rows += [['الوحدة','النوع','الطاقة','الليالي','الإشغال %','الإيراد','الضريبة']]+[[x['number'],x['kind'],x['capacity'],x['sold'],round(100*x['sold']/x['capacity'],2) if x['capacity'] else 0,cash(x['net']),cash(x['tax'])] for x in r['by_unit']]
     else:raise RuleError('التقرير غير معروف')
     rows=[list(map(str,r)) for r in rows]
     out=io.BytesIO()

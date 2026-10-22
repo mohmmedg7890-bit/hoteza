@@ -31,3 +31,66 @@ def expected_time(value):
         raise ValidationError('الوقت مطلوب بصيغة ساعة ودقيقة صحيحة.')
     try:return time.fromisoformat(str(value))
     except ValueError:raise ValidationError('وقت غير صحيح.')
+
+
+def birth_dates(value):
+    from datetime import date
+    from django.utils import timezone
+    from hijridate import Gregorian
+    try:
+        birth=date.fromisoformat(str(value))
+        if birth>timezone.localdate():raise ValueError()
+        hijri=Gregorian.fromdate(birth).to_hijri().isoformat()
+    except (ValueError,OverflowError):
+        raise ValidationError('تاريخ الميلاد: اختر تاريخًا صحيحًا من 1924-08-01 حتى اليوم للتحويل بأم القرى.')
+    return birth.isoformat(),hijri
+
+
+def guest_profile(data):
+    """Validate the registration form; never infer missing identity data for old guests."""
+    result={}
+    for key,label,required in [('first_name','الاسم الأول',True),('second_name','الاسم الثاني',False),('middle_name','الاسم الأوسط',False),('last_name','الاسم الأخير',True)]:
+        value=' '.join(str(data.get(key,'')).split())
+        if (required and not value) or len(value)>40 or (value and any(not (unicodedata.category(c)[0] in ['L','M'] or c in " '-’") for c in value)):
+            raise ValidationError(label+': أدخل حروفًا صحيحة، بحد أقصى 40 حرفًا.')
+        result[key]=value
+        english=str(data.get(key+'_en','')).strip()
+        if len(english)>80 or (english and not re.fullmatch(r"[A-Za-z '-]+",english)):raise ValidationError(label+': الاسم الإنجليزي بحروف إنجليزية فقط.')
+        result[key+'_en']=english
+    name=' '.join(result[k] for k in ['first_name','second_name','middle_name','last_name'] if result[k])
+    fields=guest_fields({**data,'name':name})
+    for key,choices,label in [('gender',['male','female'],'الجنس'),('customer_type',['citizen','resident','visitor'],'نوع العميل'),('id_type',['national_id','iqama','passport','gcc_id'],'نوع الهوية')]:
+        value=str(data.get(key,''))
+        if value not in choices:raise ValidationError(label+': اختر قيمة صحيحة.')
+        result[key]=value
+    for key,label,limit,required in [('nationality','الجنسية',80,True),('issuer_country','بلد الإصدار',80,False),('id_version','رقم النسخة',20,False),('vehicle_plate','لوحة المركبة',30,False),('workplace','مكان العمل',160,False),('work_phone','هاتف العمل',30,False)]:
+        value=' '.join(str(data.get(key,'')).split())
+        if len(value)>limit or (required and len(value)<2):raise ValidationError(label+': راجع القيمة المطلوبة.')
+        result[key]=value
+    classification=str(data.get('classification','regular'))
+    if classification not in ['regular','vip','company']:raise ValidationError('تصنيف العميل غير صحيح.')
+    result['classification']=classification
+    identifier=str(data.get('id_number','')).translate(DIGITS).strip().upper()
+    pattern={'national_id':r'1[0-9]{9}','iqama':r'2[0-9]{9}','passport':r'[A-Z0-9]{5,20}','gcc_id':r'[A-Z0-9]{5,20}'}[result['id_type']]
+    if not re.fullmatch(pattern,identifier):raise ValidationError('رقم الهوية لا يطابق صيغة نوع الهوية المحدد.')
+    result['id_number']=identifier
+    result['birth_date'],result['birth_hijri']=birth_dates(data.get('birth_date',''))
+    if data.get('birth_hijri') and data['birth_hijri']!=result['birth_hijri']:raise ValidationError('تاريخا الميلاد غير متطابقين؛ أعد اختيار التاريخ الميلادي.')
+    return fields,result
+
+
+def guest_photo(value):
+    import base64,io
+    from PIL import Image,ImageOps,UnidentifiedImageError
+    if not isinstance(value,str) or not value.startswith('data:image/jpeg;base64,') or len(value)>280000:
+        raise ValidationError('الصورة: ارفع صورة JPEG صالحة وحجمًا مناسبًا.')
+    try:
+        raw=base64.b64decode(value.split(',',1)[1],validate=True)
+        with Image.open(io.BytesIO(raw)) as im:
+            if im.format!='JPEG' or im.width<400 or im.height<300 or im.width>2400 or im.height>2400:raise ValueError()
+            im=ImageOps.exif_transpose(im).convert('RGB');im.thumbnail((800,800))
+            out=io.BytesIO();im.save(out,format='JPEG',quality=80)
+            if out.tell()>200000:raise ValueError()
+            return out.getvalue()
+    except (ValueError,OSError,UnidentifiedImageError,Image.DecompressionBombError):
+        raise ValidationError('الصورة يجب أن تكون صالحة، بأبعاد 400×300 بكسل على الأقل.')
