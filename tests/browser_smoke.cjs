@@ -48,7 +48,7 @@ async function main(){
  await p.evaluate(()=>location.hash='reservations');await wait();await p.locator('#reservation-status').selectOption('checked_out');assert.equal(await p.locator('#page button[data-open=detail]').count(),0);await p.locator('#reservation-status').selectOption('');
  state=await p.evaluate(()=>S);let r=state.reservations.find(x=>x.guest===guest.id);assert.equal(r.total,34500);
  await open('booking');await fill({guest:guest.id,unit:u.id,arrival:state.today,departure:await p.evaluate(()=>addDays(S.today,1)),rate:150,persons:2});await p.locator('#save').click();await p.waitForSelector('#form-error:not(:empty)');assert((await p.locator('#form-error').textContent()).includes('محجوزة'));await p.locator('#close-modal').click();
- p.on('dialog',d=>d.accept());await open('detail',r.id);await p.locator('dialog [data-action="checkin"]').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await wait();
+ p.on('dialog',d=>d.accept());await open('detail',r.id);await p.locator('.reservation-bottom-actions [data-action="checkin"]').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await wait();
  await open('extend',r.id);await fill({departure:await p.evaluate(()=>addDays(S.today,3)),rate:150});await save();
  await open('move',r.id);await fill({unit:v.id});await save();
  await open('charge',r.id);await fill({description:'خدمة فحص',amount:50});await save();
