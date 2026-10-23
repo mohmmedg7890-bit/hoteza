@@ -31,6 +31,10 @@ def document_data(prop,kind,pk):
         rows += [['البند','التاريخ','قبل الضريبة','الضريبة','الإجمالي']]+[[x['description'],x['date'],cash(x['net']),cash(x['tax']),cash(x['net']+x['tax'])] for x in s['lines']]
         rows += [['الإجمالي',cash(obj.total)]]
         return label,rows
+    if kind=='expense':
+        obj=Expense.objects.filter(pk=pk,property=prop).select_related('user').first()
+        if obj is None:raise RuleError('السند غير موجود في منشأتك')
+        return 'سند صرف',[['المنشأة',prop.name],['رقم السند',f'EXP-{obj.pk}'],['الطرف المستفيد',obj.beneficiary],['البيان',obj.description],['الحجز',obj.reservation_id or '—'],['المبلغ',cash(obj.amount)],['طريقة الدفع',obj.method],['التاريخ',timezone.localtime(obj.created_at).isoformat()],['المستخدم',obj.user.username]]
     if kind=='receipt':
         obj=Payment.objects.select_related('reservation__guest','user').filter(pk=pk,reservation__property=prop).first()
         if not obj:raise RuleError('السند غير موجود')
