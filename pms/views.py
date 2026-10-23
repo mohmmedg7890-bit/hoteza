@@ -190,3 +190,14 @@ def ledger_preview(request):
     response=JsonResponse(preview(request.user,m.property_id,request.GET.get('kind'),request.GET.get('id')))
     response['Cache-Control']='private, no-store'
     return response
+
+
+@require_GET
+@api_errors
+def checkout_preview(request):
+    from .checkout import preview
+    m=membership(request)
+    raw=request.GET.get('id','')
+    if not raw.isdigit():raise RuleError('رقم الحجز مطلوب')
+    response=JsonResponse(preview(request.user,m.property_id,int(raw)))
+    response['Cache-Control']='private, no-store';return response

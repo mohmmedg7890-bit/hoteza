@@ -88,8 +88,8 @@ async function main(){
  await open('booking');await fill({guest:guest.id,unit:checkoutUnit,arrival:state.today,departure:await p.evaluate(()=>addDays(S.today,1)),rate:100,persons:1});await save();
  const checkoutId=await p.evaluate(id=>S.reservations.find(r=>r.allocations.some(a=>a.unit===id)).id,checkoutUnit);
  await open('detail',checkoutId);await p.locator('.reservation-bottom-actions [data-action=checkin]').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);
- await open('payment',checkoutId);await fill({amount:115,method:'نقد'});await save();
- await open('checkout',checkoutId);await fill({allow_same_day:'1'});await p.locator('#save').click();await p.waitForSelector('.checkout-success');
+ await open('checkout',checkoutId);await p.waitForSelector('#checkout-review table');await fill({allow_same_day:'1'});await p.locator('#save').click();assert((await p.locator('#form-error').textContent()).includes('اعتمد مراجعة التسوية'));assert.equal(await p.evaluate(id=>S.reservations.find(r=>r.id===id).status,checkoutId),'checked_in');await fill({settlement_ack:'1',method:'نقد'});await p.locator('#save').click();await p.waitForSelector('.checkout-success');
+ assert(await p.locator('.checkout-success a[href^="/document/receipt/"]').isVisible());
  const checkoutInvoice=p.locator('.checkout-success a[href^="/document/invoice/"]');assert.equal(await checkoutInvoice.count(),1);
  const printed=await context.newPage();await printed.goto('http://127.0.0.1:8771'+await checkoutInvoice.getAttribute('href'));assert((await printed.locator('h1').textContent()).includes('فاتورة'));await printed.close();
  await p.locator('#close-modal').click();await open('detail',checkoutId);assert(await p.locator('.reservation-bottom-actions a[href^="/document/invoice/"]').isVisible());await p.locator('#close-modal').click();

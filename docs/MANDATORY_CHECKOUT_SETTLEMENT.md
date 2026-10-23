@@ -1,0 +1,15 @@
+# Mandatory checkout settlement — isolated fix based on deployed main
+
+The checkout save button now requires a server-fresh account review and explicit approval. It then runs the selected full-balance collection/refund, invoice generation, settlement audit snapshot, departure status and dirty-room update inside the existing single property transaction. Any failure rolls all these changes back. A repeated operation key returns the same result without a duplicate voucher, invoice or settlement.
+
+The review shows nights, net rent/services, tax, total, net payments, remaining collection/refund and unbilled charges. It fingerprints charge rows, payment rows, allocations, dates, status and currency, so a changed account must be reviewed again. It does not trust browser totals. There is no arbitrary settlement amount: it uses the exact current outstanding balance.
+
+Modes: paid account (no new voucher), collect outstanding (receipt), refund surplus (owner-only existing refund permission), or documented debt (owner-only with a 10–250 character reason). Debt is recorded as remaining receivable; it is not represented as a cash receipt. A zero account still gets a settlement record. The user must select the actual method and confirm funds were received/returned; the action does not execute an external bank transaction.
+
+Early departure requires the existing future-night settlement first; same-day owner departure retains one night. An overdue stay now requires explicit extension to the current departure date before checkout, avoiding uncharged intervening nights. Both buttons are exposed in the checkout form. Those separate night adjustments remain independently recorded operations and must be reviewed before saving checkout. Extending and early-night correction already use existing charges, tax and credit-note logic; this patch does not silently apply new rates or write journal entries automatically.
+
+The saved checkout-settlement audit ID and receipt ID are returned, printable from the success screen. The departure document includes the settlement reference, original/final balances, mode, voucher and approved debt reason. Its snapshot is in the existing Audit table; no new schema is required. There is no UI/API to edit this settlement audit. Application audit storage is not a database-level immutable legal ledger.
+
+Current invoice documents remain trial invoices, not ZATCA-certified electronic invoices. This fix is separate from draft accounting PRs #2–4 and can be reviewed without deploying those features. No live guest checkout, receipt, refund or production deployment is performed during verification.
+
+Tests: mandatory acknowledgment/freshness, one-save collection, exact owner-only refund, zero-balance record, documented debt permissions, invoice-failure rollback, retries, overdue/early checks and tenant-scoped read-only preview. Existing lifecycle and posting tests updated to explicitly review before checkout. Browser smoke now checks missing-approval failure and then creates the receipt/invoice/checkout through a single save with synthetic data.
