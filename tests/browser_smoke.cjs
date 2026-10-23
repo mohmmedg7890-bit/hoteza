@@ -24,6 +24,13 @@ async function main(){
  const wait=()=>p.waitForTimeout(180);
  await p.goto('http://127.0.0.1:8771/');assert((await p.locator('#heroTitle').textContent()).includes('ضيافتك'));await p.locator('[data-modal=offerModal]').first().click();assert(await p.locator('#offerModal').isVisible());await p.locator('#offerModal .modal-close').click();await p.waitForFunction(()=>!document.querySelector('#offerModal').open);await p.goto('http://127.0.0.1:8771/login/');await p.locator('[name=username]').fill('demo-owner');await p.locator('[name=password]').fill(password);await p.getByRole('button',{name:'تسجيل الدخول',exact:true}).click();await p.waitForSelector('.metrics');
  assert.equal(await p.locator('#nav .nav-section').count(),3);
+ // New ledger foundation: explicit owner approval, balanced posting, reversal and read-only reports.
+ await p.locator('#nav a[href="#ledger"]').click();await p.waitForSelector('#ledger-result .notice');
+ await p.locator('[data-action=journal_init]').click();await p.locator('#action-confirm-yes').click();await p.waitForSelector('#ledger-result tbody tr:nth-child(12)');
+ await p.locator('[data-open=journal_entry]').click();await p.locator('[name=description]').fill('افتتاحي اختبار واجهة');await p.locator('[name=account_0]').selectOption('1000');await p.locator('[name=debit_0]').fill('100');await p.locator('[name=account_1]').selectOption('3000');await p.locator('[name=credit_1]').fill('100');await p.locator('#save').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await p.waitForSelector('[data-ledger-reverse]');
+ await p.locator('#ledger-account-filter').selectOption('1000');assert((await p.locator('#ledger-entries').textContent()).includes('افتتاحي اختبار واجهة'));
+ await p.locator('[data-ledger-reverse]').first().click();await p.locator('[name=description]').fill('عكس اختبار واجهة');await p.locator('#save').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await p.waitForFunction(()=>document.querySelector('#ledger-entries')?.textContent.includes('تم عكسه'));
+
  await p.locator('#nav a[href="#units"]').click();await p.waitForSelector('.board-grid');
  assert((await p.locator('.board-room').count())>0);
  await p.locator('[data-board-view=list]').click();assert(await p.locator('.room-board table').isVisible());
@@ -87,6 +94,9 @@ async function main(){
  const printed=await context.newPage();await printed.goto('http://127.0.0.1:8771'+await checkoutInvoice.getAttribute('href'));assert((await printed.locator('h1').textContent()).includes('فاتورة'));await printed.close();
  await p.locator('#close-modal').click();await open('detail',checkoutId);assert(await p.locator('.reservation-bottom-actions a[href^="/document/invoice/"]').isVisible());await p.locator('#close-modal').click();
 
+ // Review source-backed journals from the completed stay; repeated review adds nothing.
+ await p.locator('#nav a[href="#ledger"]').click();await p.waitForSelector('#ledger-source-id');await p.locator('#ledger-source-id').selectOption(String(checkoutId));await p.locator('#ledger-source-preview').click();await p.waitForSelector('[data-action=journal_import]');
+ await p.locator('[data-action=journal_import]').click();await p.locator('#action-confirm-yes').click();await p.waitForSelector('#ledger-source-id');await p.locator('#ledger-source-id').selectOption(String(checkoutId));await p.locator('#ledger-source-preview').click();await p.waitForFunction(()=>document.querySelector('#ledger-source-plan')?.textContent.includes('لا توجد قيود جديدة'));
  const inv=r.invoices[0].id;const document=await context.newPage();await document.goto(`http://127.0.0.1:8771/document/invoice/${inv}/`);assert((await document.locator('h1').textContent()).includes('فاتورة'));
  fs.mkdirSync(path.join(root,'test-results'),{recursive:true});await document.screenshot({path:path.join(root,'test-results/invoice-desktop.png'),fullPage:true});
  for(const fmt of ['pdf','xlsx','docx','csv','png','json']){const response=await context.request.get(`http://127.0.0.1:8771/export/invoice-${inv}/${fmt}/`);assert.equal(response.status(),200);assert((await response.body()).length>20)}
