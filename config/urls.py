@@ -5,6 +5,7 @@ from pms import views
 urlpatterns=[
     path('',views.landing),
     path('login/',views.login_view),path('logout/',views.logout_view),path('setup/',views.setup),path('app/',views.app),
+    path('api/ledger/close-readiness/',views.close_readiness),
     path('api/ledger/',views.ledger_view),path('api/ledger/preview/',views.ledger_preview),path('api/ledger/reconciliation-preview/',views.reconciliation_preview),
     path('api/birth-date/',views.birth_date),path('api/guest-photo/<int:pk>/',views.photo),
     path('health/',views.health),path('api/state/',views.state),path('api/action/<str:name>/',views.action),path('api/reports/',views.reports),

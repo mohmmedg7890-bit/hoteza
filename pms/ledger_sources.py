@@ -60,7 +60,7 @@ def _raw(prop,kind,pk):
             plans.append(entry(f'reservation:{r.pk}:allocation:{dt}',dt,f'تخصيص مقدمات RES-{r.pk} / {dt}',[line('2000',delta,r.pk),line('1100',-delta,r.pk)]));allocated=desired
     return [x for x in plans if x]
 
-def preview(user,prop_id,kind,pk):
+def preview(user,prop_id,kind,pk,*,check_locks=True):
     authorize(user,prop_id);prop=Property.objects.get(pk=prop_id)
     plans=_raw(prop,kind,pk)
     cut=LedgerOpening.objects.filter(property=prop).first()
@@ -76,7 +76,7 @@ def preview(user,prop_id,kind,pk):
             same=current==plan['lines'] and str(previous.date)==plan['entry_date'] and previous.description==plan['description'] and previous.currency==prop.currency
             plan['journal']=previous.pk
             plan['status']='existing' if same and not hasattr(previous,'reversal') else 'conflict'
-        if plan['status']=='new':
+        if check_locks and plan['status']=='new':
             from .periods import writable
             writable(prop,date.fromisoformat(plan['entry_date']))
     body={'property':prop.pk,'currency':prop.currency,'kind':kind,'id':str(pk),'entries':sorted(plans,key=lambda p:(p['entry_date'],p['source']))}
