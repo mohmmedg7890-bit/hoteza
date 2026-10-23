@@ -179,4 +179,14 @@ def ledger_view(request):
     start=day(request.GET.get('start',timezone.localdate().replace(day=1)));end=day(request.GET.get('end',timezone.localdate()+timedelta(days=1)))
     result=trial_balance(request.user,m.property_id,start,end)
     result['entries']=[{'id':e.pk,'sequence':e.sequence,'date':str(e.date),'description':e.description,'source':e.source,'currency':e.currency,'total':e.debit_total,'reversal_of':e.reversal_of_id,'reversed':hasattr(e,'reversal'),'lines':[{'account':l.account.code,'debit':l.debit,'credit':l.credit,'reservation':l.reservation_id} for l in e.lines.all()]} for e in JournalEntry.objects.filter(property_id=m.property_id,date__gte=start,date__lt=end).select_related('reversal').prefetch_related('lines__account').order_by('-sequence')[:200]]
-    return JsonResponse(result)
+    response=JsonResponse(result);response['Cache-Control']='private, no-store';return response
+
+
+@require_GET
+@api_errors
+def ledger_preview(request):
+    from .ledger_sources import preview
+    m=membership(request)
+    response=JsonResponse(preview(request.user,m.property_id,request.GET.get('kind'),request.GET.get('id')))
+    response['Cache-Control']='private, no-store'
+    return response

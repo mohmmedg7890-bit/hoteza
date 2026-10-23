@@ -94,6 +94,9 @@ async function main(){
  const printed=await context.newPage();await printed.goto('http://127.0.0.1:8771'+await checkoutInvoice.getAttribute('href'));assert((await printed.locator('h1').textContent()).includes('فاتورة'));await printed.close();
  await p.locator('#close-modal').click();await open('detail',checkoutId);assert(await p.locator('.reservation-bottom-actions a[href^="/document/invoice/"]').isVisible());await p.locator('#close-modal').click();
 
+ // Review source-backed journals from the completed stay; repeated review adds nothing.
+ await p.locator('#nav a[href="#ledger"]').click();await p.waitForSelector('#ledger-source-id');await p.locator('#ledger-source-id').selectOption(String(checkoutId));await p.locator('#ledger-source-preview').click();await p.waitForSelector('[data-action=journal_import]');
+ await p.locator('[data-action=journal_import]').click();await p.locator('#action-confirm-yes').click();await p.waitForSelector('#ledger-source-id');await p.locator('#ledger-source-id').selectOption(String(checkoutId));await p.locator('#ledger-source-preview').click();await p.waitForFunction(()=>document.querySelector('#ledger-source-plan')?.textContent.includes('لا توجد قيود جديدة'));
  const inv=r.invoices[0].id;const document=await context.newPage();await document.goto(`http://127.0.0.1:8771/document/invoice/${inv}/`);assert((await document.locator('h1').textContent()).includes('فاتورة'));
  fs.mkdirSync(path.join(root,'test-results'),{recursive:true});await document.screenshot({path:path.join(root,'test-results/invoice-desktop.png'),fullPage:true});
  for(const fmt of ['pdf','xlsx','docx','csv','png','json']){const response=await context.request.get(`http://127.0.0.1:8771/export/invoice-${inv}/${fmt}/`);assert.equal(response.status(),200);assert((await response.body()).length>20)}

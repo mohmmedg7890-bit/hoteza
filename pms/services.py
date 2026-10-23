@@ -118,7 +118,7 @@ def reservation_units(prop,data,default_unit,persons,start,end,reservation=None)
     require(0<persons<=sum(unit.capacity for unit,rate in result),'إجمالي سعة الوحدات غير كافٍ')
     return result
 
-OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove','journal_init','journal_post','journal_reverse'}
+OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove','journal_init','journal_post','journal_reverse','journal_import'}
 
 @transaction.atomic
 def perform(user, prop_id, action, d, key):
@@ -360,6 +360,9 @@ def perform(user, prop_id, action, d, key):
         m=Membership.objects.filter(property=prop,pk=d.get('id')).first();require(m is not None,'المستخدم غير موجود')
         require(m.user_id!=user.id,'لا تغيّر صلاحيتك من هذه الشاشة')
         role=d.get('role');require(role in ['owner','reception'],'دور غير صحيح');m.role=role;m.save()
+    elif action=='journal_import':
+        from .ledger_sources import apply
+        result=apply(user,prop.pk,d.get('kind'),d.get('source_id'),d.get('digest'))
     elif action in {'journal_init','journal_post','journal_reverse'}:
         from . import ledger
         if action=='journal_init':result={'accounts':ledger.init_chart(user,prop.pk)}
