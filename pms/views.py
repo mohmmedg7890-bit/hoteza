@@ -205,3 +205,14 @@ def reconciliation_preview(request):
     if not raw.lstrip('-').isdigit():raise RuleError('المبلغ بوحدة العملة الصغرى مطلوب')
     response=JsonResponse(comparison(request.user,m.property_id,request.GET.get('account'),request.GET.get('date'),int(raw)))
     response['Cache-Control']='private, no-store';return response
+
+
+@require_GET
+@api_errors
+def close_readiness(request):
+    from .close_readiness import review
+    m=membership(request)
+    start=day(request.GET.get('start',timezone.localdate().replace(day=1)))
+    end=day(request.GET.get('end',timezone.localdate()+timedelta(days=1)))
+    response=JsonResponse(review(request.user,m.property_id,start,end))
+    response['Cache-Control']='private, no-store';return response
