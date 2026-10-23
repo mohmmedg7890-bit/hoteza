@@ -118,7 +118,7 @@ def reservation_units(prop,data,default_unit,persons,start,end,reservation=None)
     require(0<persons<=sum(unit.capacity for unit,rate in result),'إجمالي سعة الوحدات غير كافٍ')
     return result
 
-OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove','journal_init','journal_post','journal_reverse','journal_import','journal_opening','reconciliation_create','ledger_transfer'}
+OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove','journal_init','journal_post','journal_reverse','journal_import','journal_opening','reconciliation_create','ledger_transfer','ledger_period_lock','ledger_period_reopen'}
 
 @transaction.atomic
 def perform(user, prop_id, action, d, key):
@@ -360,6 +360,9 @@ def perform(user, prop_id, action, d, key):
         m=Membership.objects.filter(property=prop,pk=d.get('id')).first();require(m is not None,'المستخدم غير موجود')
         require(m.user_id!=user.id,'لا تغيّر صلاحيتك من هذه الشاشة')
         role=d.get('role');require(role in ['owner','reception'],'دور غير صحيح');m.role=role;m.save()
+    elif action in {'ledger_period_lock','ledger_period_reopen'}:
+        from . import periods
+        result=(periods.lock if action=='ledger_period_lock' else periods.reopen)(user,prop.pk,d)
     elif action in {'journal_opening','reconciliation_create','ledger_transfer'}:
         from . import reconciliation
         result=({'journal_opening':reconciliation.opening,'reconciliation_create':reconciliation.confirm,'ledger_transfer':reconciliation.transfer}[action])(user,prop.pk,d)
