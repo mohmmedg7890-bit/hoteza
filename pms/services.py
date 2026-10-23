@@ -205,7 +205,9 @@ def perform(user, prop_id, action, d, key):
             require(r.status=='checked_in','الحجز غير مسكن')
             require(timezone.localdate()>=r.departure or (member.role=='owner' and d.get('allow_same_day') is True and timezone.localdate()==r.arrival and r.departure==r.arrival+timedelta(days=1)),'المغادرة المبكرة تتطلب تسوية الليالي أولًا بواسطة المالك؛ مغادرة نفس اليوم تحتسب ليلة واحدة')
             require(balance(r)['balance']==0 or (member.role=='owner' and d.get('allow_debt') and balance(r)['balance']>0),'يجب تسوية الحساب أو اعتماد مديونية من المالك')
-            require(not r.charges.filter(invoice__isnull=True).exists(),'أصدر فاتورة الرسوم غير المفوترة قبل المغادرة')
+            if r.charges.filter(invoice__isnull=True).exists():
+                perform(user,prop.pk,'invoice',{'id':r.pk,'buyer':d.get('buyer',r.guest.name),'buyer_tax':d.get('buyer_tax',''),'buyer_address':d.get('buyer_address','')},hashlib.sha256((key+':checkout-invoice').encode()).hexdigest())
+            result={'reservation':r.pk,'invoices':list(r.invoices.order_by('id').values_list('id',flat=True)),'checkout_document':r.pk}
             r.status='checked_out';r.checked_out_at=timezone.now();r.save()
             for allocation in r.allocations.filter(end=r.departure).select_related('unit'):
                 allocation.unit.cleaning='dirty';allocation.unit.save()
@@ -381,7 +383,8 @@ def report(prop,start,end):
         charges=Charge.objects.filter(reservation__property=prop,service_date=d).aggregate(net=Sum('net'),tax=Sum('tax'))
         room_revenue=Charge.objects.filter(reservation__property=prop,service_date=d,kind__in=['room','room_reversal','discount','discount_reversal']).aggregate(n=Sum('net'))['n'] or 0
         paid=Payment.objects.filter(reservation__property=prop,created_at__date=d).aggregate(n=Sum('amount'))['n'] or 0
-        rows.append({'date':str(d),'available':len(units)-len(blocked),'sold':len(occupied),'net':charges['net'] or 0,'tax':charges['tax'] or 0,'room_revenue':room_revenue,'paid':paid})
+        expenses=Expense.objects.filter(property=prop,created_at__date=d).aggregate(n=Sum('amount'))['n'] or 0
+        rows.append({'expenses':expenses,'cash_movement':paid-expenses,'date':str(d),'available':len(units)-len(blocked),'sold':len(occupied),'net':charges['net'] or 0,'tax':charges['tax'] or 0,'room_revenue':room_revenue,'paid':paid})
         for u in units:
             per_unit[u.pk]['capacity']+=int(u.pk not in blocked)
             per_unit[u.pk]['sold']+=int(u.pk in occupied)
@@ -399,4 +402,4 @@ def report(prop,start,end):
         if allocation and allocation.unit_id in per_unit:
             per_unit[allocation.unit_id]['net']+=c.net;per_unit[allocation.unit_id]['tax']+=c.tax
     capacity=sum(x['available'] for x in rows);sold=sum(x['sold'] for x in rows);room=sum(x['room_revenue'] for x in rows)
-    return {'rows':rows,'capacity':capacity,'sold':sold,'occupancy':round(100*sold/capacity,2) if capacity else 0,'net':sum(x['net'] for x in rows),'tax':sum(x['tax'] for x in rows),'paid':sum(x['paid'] for x in rows),'adr':round(room/sold) if sold else 0,'revpar':round(room/capacity) if capacity else 0,'by_unit':list(per_unit.values()),'by_source':list(per_source.values())}
+    return {'expenses':sum(x['expenses'] for x in rows),'cash_movement':sum(x['cash_movement'] for x in rows),'rows':rows,'capacity':capacity,'sold':sold,'occupancy':round(100*sold/capacity,2) if capacity else 0,'net':sum(x['net'] for x in rows),'tax':sum(x['tax'] for x in rows),'paid':sum(x['paid'] for x in rows),'adr':round(room/sold) if sold else 0,'revpar':round(room/capacity) if capacity else 0,'by_unit':list(per_unit.values()),'by_source':list(per_source.values())}

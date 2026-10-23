@@ -227,9 +227,23 @@ class PMSCase(TestCase):
         with patch('pms.services.timezone.localdate',return_value=future):
             with self.assertRaises(RuleError):self.op('checkout',{'id':r.pk})
             self.op('payment',{'id':r.pk,'amount':'517.50','method':'نقد'})
-            with self.assertRaises(RuleError):self.op('checkout',{'id':r.pk})
-            self.op('invoice',{'id':r.pk});self.op('checkout',{'id':r.pk})
+            key=str(uuid.uuid4());result=self.op('checkout',{'id':r.pk},key=key)
+            self.assertEqual(result,self.op('checkout',{'id':r.pk},key=key))
+            self.assertEqual(len(result['invoices']),1);self.assertEqual(r.invoices.count(),1)
+            self.assertFalse(r.charges.filter(invoice__isnull=True).exists())
+            self.assertEqual(Invoice.objects.get(pk=result['invoices'][0]).total,51750)
         r.refresh_from_db();self.u.refresh_from_db();self.assertEqual(r.status,'checked_out');self.assertEqual(self.u.cleaning,'dirty')
+    def test_cash_movement_separates_revenue_payments_refunds_and_expenses(self):
+        r=self.book();self.op('payment',{'id':r.pk,'amount':'600','method':'نقد'})
+        self.op('refund',{'id':r.pk,'amount':'20','method':'نقد'})
+        self.op('expense',{'amount':'30','method':'نقد','beneficiary':'مورد تجريبي','description':'مصروف اختبار'})
+        rep=report(self.p,self.today,self.today+timedelta(days=1))
+        self.assertEqual(rep['paid'],58000);self.assertEqual(rep['expenses'],3000);self.assertEqual(rep['cash_movement'],55000)
+        self.assertEqual(rep['net'],15000);self.assertEqual(balance(r)['paid'],58000)
+        self.assertEqual(report(self.q,self.today,self.today+timedelta(days=1))['expenses'],0)
+        response=self.client.get(f'/export/reports/json/?start={self.today}&end={self.today+timedelta(days=1)}')
+        self.assertEqual(response.status_code,200);self.assertIn('المصروفات المدفوعة',str(response.json()))
+
     def test_owner_can_approve_debt_reception_cannot(self):
         r=self.book();self.op('checkin',{'id':r.pk});self.op('invoice',{'id':r.pk})
         with patch('pms.services.timezone.localdate',return_value=self.today+timedelta(days=3)):

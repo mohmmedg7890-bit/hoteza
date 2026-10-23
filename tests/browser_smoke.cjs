@@ -75,6 +75,18 @@ async function main(){
  let monthly=await p.evaluate(()=>S.reservations.find(x=>x.rental_type==='monthly'));assert.equal(monthly.allocations.length,2);assert.equal(monthly.net,378000);assert(monthly.contract);
  const contractPage=await context.newPage();await contractPage.goto(`http://127.0.0.1:8771/document/contract/${monthly.contract}/`);assert((await contractPage.locator('body').textContent()).includes('مسودة غير مكتملة'));await contractPage.close();
 
+ // Checkout must invoice automatically and retain visible print links without a popup blocker.
+ await open('unit');await fill({number:'UI-903',kind:'اختبار مغادرة',floor:'الأول',capacity:2,rate:100});await save();
+ const checkoutUnit=await p.evaluate(()=>S.units.find(u=>u.number==='UI-903').id);
+ await open('booking');await fill({guest:guest.id,unit:checkoutUnit,arrival:state.today,departure:await p.evaluate(()=>addDays(S.today,1)),rate:100,persons:1});await save();
+ const checkoutId=await p.evaluate(id=>S.reservations.find(r=>r.allocations.some(a=>a.unit===id)).id,checkoutUnit);
+ await open('detail',checkoutId);await p.locator('.reservation-bottom-actions [data-action=checkin]').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);
+ await open('payment',checkoutId);await fill({amount:115,method:'نقد'});await save();
+ await open('checkout',checkoutId);await fill({allow_same_day:'1'});await p.locator('#save').click();await p.waitForSelector('.checkout-success');
+ const checkoutInvoice=p.locator('.checkout-success a[href^="/document/invoice/"]');assert.equal(await checkoutInvoice.count(),1);
+ const printed=await context.newPage();await printed.goto('http://127.0.0.1:8771'+await checkoutInvoice.getAttribute('href'));assert((await printed.locator('h1').textContent()).includes('فاتورة'));await printed.close();
+ await p.locator('#close-modal').click();await open('detail',checkoutId);assert(await p.locator('.reservation-bottom-actions a[href^="/document/invoice/"]').isVisible());await p.locator('#close-modal').click();
+
  const inv=r.invoices[0].id;const document=await context.newPage();await document.goto(`http://127.0.0.1:8771/document/invoice/${inv}/`);assert((await document.locator('h1').textContent()).includes('فاتورة'));
  fs.mkdirSync(path.join(root,'test-results'),{recursive:true});await document.screenshot({path:path.join(root,'test-results/invoice-desktop.png'),fullPage:true});
  for(const fmt of ['pdf','xlsx','docx','csv','png','json']){const response=await context.request.get(`http://127.0.0.1:8771/export/invoice-${inv}/${fmt}/`);assert.equal(response.status(),200);assert((await response.body()).length>20)}

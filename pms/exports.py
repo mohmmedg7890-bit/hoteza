@@ -69,10 +69,10 @@ def build_export(request,prop,dataset,fmt,role):
         titles={'overview':'الملخص التشغيلي','daily':'الحركة اليومية','units':'أداء الوحدات','sources':'مصادر الحجوزات'}
         if view not in titles:raise RuleError('نوع التقرير غير معروف')
         title=titles[view]+' — Hoteza'
-        rows=[['المنشأة',prop.name],['التقرير',titles[view]],['بداية الفترة',str(start)],['نهاية الفترة - غير مشمولة',str(end)],['العملة',prop.currency],['الطاقة المتاحة',r['capacity']],['الليالي المباعة',r['sold']],['الإشغال %',r['occupancy']],['الإيراد قبل الضريبة',cash(r['net'])],['الضريبة',cash(r['tax'])],['صافي التحصيل',cash(r['paid'])],['ADR قبل الضريبة',cash(r['adr'])],['RevPAR قبل الضريبة',cash(r['revpar'])]]
+        rows=[['المنشأة',prop.name],['التقرير',titles[view]],['بداية الفترة',str(start)],['نهاية الفترة - غير مشمولة',str(end)],['العملة',prop.currency],['الطاقة المتاحة',r['capacity']],['الليالي المباعة',r['sold']],['الإشغال %',r['occupancy']],['الإيراد قبل الضريبة',cash(r['net'])],['الضريبة',cash(r['tax'])],['صافي التحصيل',cash(r['paid'])],['المصروفات المدفوعة',cash(r['expenses'])],['صافي الحركة النقدية - ليست صافي الربح',cash(r['cash_movement'])],['ADR قبل الضريبة',cash(r['adr'])],['RevPAR قبل الضريبة',cash(r['revpar'])]]
         if view in ['overview','daily']:
-            rows += [['التاريخ','الطاقة','المباع','الإيراد','الضريبة','التحصيل']]+[[x['date'],x['available'],x['sold'],cash(x['net']),cash(x['tax']),cash(x['paid'])] for x in r['rows']]
-            rows += [['الإجمالي',r['capacity'],r['sold'],cash(r['net']),cash(r['tax']),cash(r['paid'])]]
+            rows += [['التاريخ','الطاقة','المباع','الإيراد','الضريبة','التحصيل','المصروفات','صافي الحركة النقدية']]+[[x['date'],x['available'],x['sold'],cash(x['net']),cash(x['tax']),cash(x['paid']),cash(x['expenses']),cash(x['cash_movement'])] for x in r['rows']]
+            rows += [['الإجمالي',r['capacity'],r['sold'],cash(r['net']),cash(r['tax']),cash(r['paid']),cash(r['expenses']),cash(r['cash_movement'])]]
         if view in ['overview','sources']:
             rows += [['المصدر','الليالي','الإيراد','الضريبة']]+[[x['source'],x['sold'],cash(x['net']),cash(x['tax'])] for x in r['by_source']]
         if view in ['overview','units']:
