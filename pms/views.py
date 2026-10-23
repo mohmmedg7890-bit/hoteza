@@ -168,3 +168,15 @@ def shared_contract(request,token):
     response=render(request,'contract.html',{'contract':contract,'s':s,'official':s['property'],'guest':s['guest'],'reference':f'CTR-{contract.reservation.property_id}-{contract.pk:06}','units':s['units'],'shared':True,'totals':[(label,cash(s.get(key,0))) for key,label in [('rent','الإيجار'),('discount','الخصم'),('extras','الإضافات'),('penalties','الغرامات'),('net','المجموع الجزئي'),('tax','ضريبة القيمة المضافة'),('total','المجموع الكلي')]]})
     response['Cache-Control']='private, no-store';response['Referrer-Policy']='no-referrer';response['X-Robots-Tag']='noindex, nofollow'
     return response
+
+
+@require_GET
+@api_errors
+def ledger_view(request):
+    from .ledger import trial_balance
+    from .models import JournalEntry
+    m=membership(request)
+    start=day(request.GET.get('start',timezone.localdate().replace(day=1)));end=day(request.GET.get('end',timezone.localdate()+timedelta(days=1)))
+    result=trial_balance(request.user,m.property_id,start,end)
+    result['entries']=[{'id':e.pk,'sequence':e.sequence,'date':str(e.date),'description':e.description,'source':e.source,'currency':e.currency,'total':e.debit_total,'reversal_of':e.reversal_of_id,'reversed':hasattr(e,'reversal'),'lines':[{'account':l.account.code,'debit':l.debit,'credit':l.credit,'reservation':l.reservation_id} for l in e.lines.all()]} for e in JournalEntry.objects.filter(property_id=m.property_id,date__gte=start,date__lt=end).select_related('reversal').prefetch_related('lines__account').order_by('-sequence')[:200]]
+    return JsonResponse(result)

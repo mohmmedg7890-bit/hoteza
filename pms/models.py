@@ -1,6 +1,7 @@
 from datetime import time
 from django.db import models
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db.models import Q
 
 class Property(models.Model):
@@ -138,3 +139,49 @@ class Contract(models.Model):
     snapshot = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+
+class LedgerAccount(models.Model):
+    property = models.ForeignKey(Property,on_delete=models.PROTECT)
+    code = models.CharField(max_length=16)
+    name = models.CharField(max_length=120)
+    category = models.CharField(max_length=16,choices=[(x,x) for x in ['asset','liability','equity','revenue','expense']])
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['property','code'],name='ledger_account_code_unique')]
+
+class PostedQuerySet(models.QuerySet):
+    def update(self,**kwargs):raise ValidationError('القيود المنشورة لا تعدل؛ استخدم قيدًا عكسيًا')
+    def delete(self):raise ValidationError('القيود المنشورة لا تحذف؛ استخدم قيدًا عكسيًا')
+    def bulk_update(self,*args,**kwargs):raise ValidationError('القيود المنشورة لا تعدل')
+
+class PostedModel(models.Model):
+    objects=PostedQuerySet.as_manager()
+    class Meta:abstract=True
+    def save(self,*args,**kwargs):
+        if not self._state.adding:raise ValidationError('القيود المنشورة لا تعدل؛ استخدم قيدًا عكسيًا')
+        return super().save(*args,**kwargs)
+    def delete(self,*args,**kwargs):raise ValidationError('القيود المنشورة لا تحذف؛ استخدم قيدًا عكسيًا')
+
+class JournalEntry(PostedModel):
+    property=models.ForeignKey(Property,on_delete=models.PROTECT)
+    sequence=models.PositiveBigIntegerField()
+    date=models.DateField()
+    description=models.CharField(max_length=250)
+    source=models.CharField(max_length=120)
+    digest=models.CharField(max_length=64)
+    currency=models.CharField(max_length=3)
+    debit_total=models.PositiveBigIntegerField()
+    credit_total=models.PositiveBigIntegerField()
+    reversal_of=models.OneToOneField('self',null=True,blank=True,on_delete=models.PROTECT,related_name='reversal')
+    user=models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['property','sequence'],name='journal_sequence_unique'),models.UniqueConstraint(fields=['property','source'],name='journal_source_unique'),models.CheckConstraint(condition=Q(debit_total=models.F('credit_total')) & Q(debit_total__gt=0),name='journal_totals_balanced')]
+
+class JournalLine(PostedModel):
+    entry=models.ForeignKey(JournalEntry,on_delete=models.PROTECT,related_name='lines')
+    account=models.ForeignKey(LedgerAccount,on_delete=models.PROTECT)
+    reservation=models.ForeignKey(Reservation,on_delete=models.PROTECT,null=True,blank=True)
+    debit=models.PositiveBigIntegerField(default=0)
+    credit=models.PositiveBigIntegerField(default=0)
+    class Meta:
+        constraints=[models.CheckConstraint(condition=(Q(debit__gt=0)&Q(credit=0))|(Q(credit__gt=0)&Q(debit=0)),name='journal_line_one_side')]

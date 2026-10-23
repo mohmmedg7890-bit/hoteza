@@ -118,7 +118,7 @@ def reservation_units(prop,data,default_unit,persons,start,end,reservation=None)
     require(0<persons<=sum(unit.capacity for unit,rate in result),'إجمالي سعة الوحدات غير كافٍ')
     return result
 
-OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove'}
+OWNER_ONLY = {'property_save','unit_save','user_add','membership_save','subscription','refund','adjustment','block_remove','early_departure','expense','terms_save','unit_remove','journal_init','journal_post','journal_reverse'}
 
 @transaction.atomic
 def perform(user, prop_id, action, d, key):
@@ -360,6 +360,13 @@ def perform(user, prop_id, action, d, key):
         m=Membership.objects.filter(property=prop,pk=d.get('id')).first();require(m is not None,'المستخدم غير موجود')
         require(m.user_id!=user.id,'لا تغيّر صلاحيتك من هذه الشاشة')
         role=d.get('role');require(role in ['owner','reception'],'دور غير صحيح');m.role=role;m.save()
+    elif action in {'journal_init','journal_post','journal_reverse'}:
+        from . import ledger
+        if action=='journal_init':result={'accounts':ledger.init_chart(user,prop.pk)}
+        elif action=='journal_post':
+            entry=ledger.post(user,prop.pk,source='manual:'+key,entry_date=d.get('date'),description=d.get('description'),lines=d.get('lines'));result={'journal':entry.pk}
+        else:
+            entry=ledger.reverse(user,prop.pk,d.get('id'),d.get('date'),d.get('description'));result={'journal':entry.pk}
     elif action == 'subscription':
         require(user.is_superuser,'تجديد الاشتراك لمشغل النظام فقط')
         prop.subscription_until=day(d.get('until'));prop.save()
