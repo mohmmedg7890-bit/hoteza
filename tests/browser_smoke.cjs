@@ -29,7 +29,7 @@ async function main(){
  await p.locator('[data-action=journal_init]').click();await p.locator('#action-confirm-yes').click();await p.waitForSelector('#ledger-result tbody tr:nth-child(12)');
  await p.locator('[data-open=journal_entry]').click();await p.locator('[name=description]').fill('افتتاحي اختبار واجهة');await p.locator('[name=account_0]').selectOption('1000');await p.locator('[name=debit_0]').fill('100');await p.locator('[name=account_1]').selectOption('3000');await p.locator('[name=credit_1]').fill('100');await p.locator('#save').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await p.waitForSelector('[data-ledger-reverse]');
  await p.locator('#ledger-account-filter').selectOption('1000');assert((await p.locator('#ledger-entries').textContent()).includes('افتتاحي اختبار واجهة'));
- await p.locator('[data-ledger-reverse]').first().click();await p.locator('[name=description]').fill('عكس اختبار واجهة');await p.locator('#save').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await p.waitForFunction(()=>document.querySelector('#ledger-entries').textContent.includes('تم عكسه'));
+ await p.locator('[data-ledger-reverse]').first().click();await p.locator('[name=description]').fill('عكس اختبار واجهة');await p.locator('#save').click();await p.locator('#action-confirm-yes').click();await p.waitForFunction(()=>!document.querySelector('#modal').open);await p.waitForFunction(()=>document.querySelector('#ledger-entries')?.textContent.includes('تم عكسه'));
 
  await p.locator('#nav a[href="#units"]').click();await p.waitForSelector('.board-grid');
  assert((await p.locator('.board-room').count())>0);
