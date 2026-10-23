@@ -41,6 +41,24 @@ class PMSCase(TestCase):
         d={'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=3)),'rate':'150','persons':2};d.update(kw)
         return Reservation.objects.get(pk=self.op('reservation_create',d)['id'])
     def api(self,action,d,key=None):return self.client.post('/api/action/'+action+'/',data=json.dumps(d),content_type='application/json',HTTP_IDEMPOTENCY_KEY=key or str(uuid.uuid4()))
+    def test_entry_forms_are_document_pages(self):
+        response=self.client.get('/app/')
+        self.assertContains(response,'<section id="modal" class="entry-page"')
+        self.assertNotContains(response,'<dialog id="modal"')
+        self.assertContains(response,'/static/entry-pages.js')
+    def test_settlement_register_is_tenant_scoped_and_read_only(self):
+        r=self.book();other=Reservation.objects.create(property=self.q,guest=self.h,arrival=self.today,departure=self.today+timedelta(days=1),rate=100)
+        for prop,res in [(self.p,r),(self.q,other)]:Audit.objects.create(property=prop,user=self.owner,action='checkout_settlement',details={'reservation':res.pk,'after':{'total':100},'mode':'none'})
+        count=Audit.objects.count();result=self.client.get('/api/vouchers/settlements/').json()
+        self.assertEqual(result['total'],1);self.assertEqual(result['rows'][0]['reservation'],r.pk)
+        self.assertEqual(Audit.objects.count(),count)
+        self.client.force_login(self.staff)
+        self.assertEqual(self.client.get('/api/vouchers/settlements/').json()['total'],1)
+    def test_expense_document_is_printable_and_tenant_scoped(self):
+        x=Expense.objects.create(property=self.p,amount=100,method='نقد',beneficiary='مستفيد اختبار',description='سند صرف اختبار',user=self.owner)
+        self.assertContains(self.client.get(f'/document/expense/{x.pk}/'),'سند صرف')
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(f'/document/expense/{x.pk}/').status_code,400)
     def test_strict_guest_fields_and_saudi_normalization(self):
         valid={'first_name':'محمد','last_name':'أحمد','gender':'male','birth_date':'1990-01-01','nationality':'السعودية','customer_type':'citizen','id_type':'national_id','id_number':'1000000000','phone':'٠٥٠٠٠٠٠٠٠٠','email':'guest@example.com','region':'عسير','city':'أبها','street':'شارع الاختبار'}
         response=self.api('guest_save',valid);self.assertEqual(response.status_code,200)

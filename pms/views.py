@@ -201,3 +201,16 @@ def checkout_preview(request):
     if not raw.isdigit():raise RuleError('رقم الحجز مطلوب')
     response=JsonResponse(preview(request.user,m.property_id,int(raw)))
     response['Cache-Control']='private, no-store';return response
+
+@require_GET
+@api_errors
+def settlement_register(request):
+    m=membership(request)
+    query=Audit.objects.filter(property=m.property,action='checkout_settlement').order_by('-id')
+    total=query.count();rows=[]
+    for event in query[:500]:
+        d=event.details;rid=d.get('reservation')
+        reservation=Reservation.objects.filter(property=m.property,pk=rid).select_related('guest').first()
+        if reservation is None:continue
+        rows.append({'id':event.pk,'reservation':reservation.pk,'guest':reservation.guest.name,'date':event.created_at.isoformat(),'total':d.get('after',{}).get('total',0),'mode':{'collect':'تحصيل المتبقي','refund':'رد الزيادة','none':'حساب مسدد','debt':'مديونية معتمدة'}.get(d.get('mode'),'تسوية')})
+    response=JsonResponse({'rows':rows,'total':total,'truncated':total>500});response['Cache-Control']='private, no-store';return response

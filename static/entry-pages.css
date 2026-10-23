@@ -1,0 +1,22 @@
+#modal.entry-page{position:static!important;inset:auto!important;transform:none!important;filter:none!important;backdrop-filter:none!important;width:100%!important;max-width:none!important;max-height:none!important;height:auto!important;margin:24px 0!important;padding:0!important;border:0!important;border-radius:18px;background:var(--glass-bg,#fff);box-shadow:none!important;overflow:visible!important;color:inherit}
+#modal.entry-page[hidden],#page[hidden]{display:none!important}
+#modal.entry-page[open]{display:block!important}
+#modal.entry-page form{max-width:1180px;margin:auto;padding:24px}
+#modal.entry-page .dialoghead{position:static;border-bottom:1px solid #c9d7ed;margin-bottom:24px;padding-bottom:18px}
+#modal.entry-page .dialoghead h2{font-size:1.6rem;outline:none}
+#modal.entry-page #close-modal{font-size:1rem;width:auto;height:auto;padding:10px 18px}
+#modal.entry-page footer{position:sticky;bottom:0;background:var(--glass-bg,#fff);padding:16px 0;z-index:3;border-top:1px solid #c9d7ed;display:flex;gap:12px}
+#modal.entry-page .formgrid{gap:20px}
+button,.button,.navitem{position:relative;overflow:hidden;isolation:isolate;transition:background-color .15s,color .15s,border-color .15s}
+button:active,.button:active{outline:2px solid #a855f7;outline-offset:2px}
+.press-wave{position:absolute;pointer-events:none;border-radius:50%;background:#a855f788;width:18px;height:18px;transform:translate(-50%,-50%);animation:press-wave .5s ease-out forwards;z-index:5}
+@keyframes press-wave{to{transform:translate(-50%,-50%) scale(22);opacity:0}}
+.voucher-menu{margin:4px 0}.voucher-menu summary{cursor:pointer;padding:12px;list-style:none;display:flex;gap:12px}.voucher-menu summary svg{width:22px;height:22px}.voucher-submenu{padding-inline-start:16px;border-inline-start:2px solid #b7c9ef;margin-inline-start:18px}.voucher-categories{display:flex;flex-wrap:wrap;gap:10px;margin:16px 0}.voucher-categories a{padding:10px 16px}.voucher-count{font-size:.85rem;opacity:.8}
+@media(max-width:700px){#modal.entry-page form{padding:14px}#modal.entry-page .formgrid{grid-template-columns:1fr!important}.entry-page .dialoghead{align-items:flex-start}#modal.entry-page footer{flex-wrap:wrap}#modal.entry-page footer button{flex:1}}
+@media(prefers-reduced-motion:reduce){.press-wave{display:none}button,.button,.navitem{transition:none}}
+
+#appearance-dialog.appearance-page{position:static!important;transform:none!important;width:100%!important;max-width:900px!important;max-height:none!important;margin:24px auto!important;padding:28px;background:var(--glass-bg,#fff);color:var(--glass-ink,#172849);border:1px solid var(--glass-line,#ddd);border-radius:18px}
+#appearance-dialog.appearance-page[hidden]{display:none!important}
+
+button:not(.primary):hover,.button:not(.primary):hover{border-color:#a855f7;background:color-mix(in srgb,var(--glass-bg,#fff) 82%,#a855f7)}
+button:focus-visible,.button:focus-visible,.navitem:focus-visible{outline:3px solid #a855f7;outline-offset:3px}
