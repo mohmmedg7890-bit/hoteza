@@ -7,7 +7,7 @@ from datetime import date
 from django.db import transaction
 from django.db.models import Max,Sum
 from django.utils import timezone
-from .models import Property,Membership,LedgerAccount,JournalEntry,JournalLine,Reservation
+from .models import Property,Membership,LedgerAccount,JournalEntry,JournalLine,Reservation,LedgerOpening
 from .services import RuleError,require
 
 CHART=[('1000','الصندوق','asset'),('1010','البنك','asset'),('1020','مستحقات البطاقات','asset'),('1100','ذمم العملاء','asset'),('2000','دفعات العملاء المقدمة','liability'),('2010','تأمينات العملاء','liability'),('2100','ضريبة مستحقة','liability'),('3000','حقوق الملكية الافتتاحية','equity'),('4000','إيراد الإقامة','revenue'),('4010','إيراد الخدمات','revenue'),('5000','مصروفات تشغيلية','expense')]
@@ -47,6 +47,8 @@ def post(user,prop_id,*,source,entry_date,description,lines,reversal_of=None):
     except ValueError:raise RuleError('تاريخ القيد غير صحيح')
     require(dt<=timezone.localdate(),'لا تنشر قيدًا مستقبليًا؛ تحقق من استحقاق الإيراد أولًا')
     require(not JournalEntry.objects.filter(property=prop).exclude(currency=prop.currency).exists(),'عملة العقار تغيرت؛ راجع ترحيل العملة قبل نشر قيود جديدة')
+    cut=LedgerOpening.objects.filter(property=prop).first()
+    require(cut is None or dt>=cut.start_date,'القيد يسبق تاريخ بدء الدفتر؛ منعًا لتكرار الأرصدة الافتتاحية')
     normalized=normalize(prop,lines)
     if reversal_of:
         require(reversal_of.property_id==prop.pk,'قيد العكس خارج العقار')
@@ -68,6 +70,7 @@ def post(user,prop_id,*,source,entry_date,description,lines,reversal_of=None):
 def reverse(user,prop_id,entry_id,entry_date,reason):
     prop=Property.objects.select_for_update().get(pk=prop_id);authorize(user,prop.pk)
     original=JournalEntry.objects.filter(property=prop,pk=entry_id).first();require(original is not None,'القيد غير موجود في العقار')
+    require(not LedgerOpening.objects.filter(entry=original).exists(),'الافتتاحية ثابتة؛ استخدم قيد تصحيح مستقل بعد تاريخ البدء')
     require(original.reversal_of_id is None,'لا تعكس قيد عكس؛ استخدم قيد تصحيح مستقل')
     return post(user,prop.pk,source='reversal:'+str(original.pk),entry_date=entry_date,description=reason,lines=[{'account':x.account.code,'debit':x.credit,'credit':x.debit,'reservation':x.reservation_id} for x in original.lines.select_related('account').order_by('id')],reversal_of=original)
 
