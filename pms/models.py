@@ -185,3 +185,28 @@ class JournalLine(PostedModel):
     credit=models.PositiveBigIntegerField(default=0)
     class Meta:
         constraints=[models.CheckConstraint(condition=(Q(debit__gt=0)&Q(credit=0))|(Q(credit__gt=0)&Q(debit=0)),name='journal_line_one_side')]
+
+class LedgerOpening(PostedModel):
+    property=models.OneToOneField(Property,on_delete=models.PROTECT,related_name='ledger_opening')
+    start_date=models.DateField()
+    reference=models.CharField(max_length=160)
+    entry=models.OneToOneField(JournalEntry,on_delete=models.PROTECT,null=True,blank=True)
+    unallocated_ack=models.BooleanField(default=False)
+    user=models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+    created_at=models.DateTimeField(auto_now_add=True)
+
+class LedgerReconciliation(PostedModel):
+    property=models.ForeignKey(Property,on_delete=models.PROTECT)
+    account=models.ForeignKey(LedgerAccount,on_delete=models.PROTECT)
+    date=models.DateField()
+    reference=models.CharField(max_length=160)
+    actual_balance=models.BigIntegerField()
+    book_balance=models.BigIntegerField()
+    difference=models.BigIntegerField()
+    explanation=models.CharField(max_length=250,blank=True)
+    digest=models.CharField(max_length=64)
+    currency=models.CharField(max_length=3)
+    user=models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        constraints=[models.UniqueConstraint(fields=['property','account','reference'],name='reconciliation_reference_unique'),models.CheckConstraint(condition=Q(difference=models.F('actual_balance')-models.F('book_balance')),name='reconciliation_difference_valid')]

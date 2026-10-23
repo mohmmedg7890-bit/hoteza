@@ -6,7 +6,7 @@ from datetime import date
 import hashlib,json
 from django.db import transaction
 from django.utils import timezone
-from .models import Property,Payment,Expense,Reservation,JournalEntry
+from .models import Property,Payment,Expense,Reservation,JournalEntry,LedgerOpening
 from .ledger import authorize,normalize,post
 from .services import require,RuleError
 
@@ -63,6 +63,8 @@ def _raw(prop,kind,pk):
 def preview(user,prop_id,kind,pk):
     authorize(user,prop_id);prop=Property.objects.get(pk=prop_id)
     plans=_raw(prop,kind,pk)
+    cut=LedgerOpening.objects.filter(property=prop).first()
+    require(cut is None or all(date.fromisoformat(p['entry_date'])>=cut.start_date for p in plans),'المصدر يسبق تاريخ القطع أو يعبره؛ لا ترحله كاملًا حتى لا تتكرر الافتتاحيات. راجع التخصيص يدويًا')
     require(len(plans)<=500,'المصدر ينتج أكثر من 500 قيد؛ يلزم تقسيم الفترة')
     for plan in plans:
         require(date.fromisoformat(plan['entry_date'])<=timezone.localdate(),'المصدر يتضمن تاريخًا مستقبليًا')
