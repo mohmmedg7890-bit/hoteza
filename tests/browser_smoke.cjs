@@ -31,6 +31,9 @@ async function main(){
   assert.equal(await p.locator('dialog[open]').count(),0);
  }
  await p.locator('[data-report-view=overview]').click();
+ // Exercise the appearance dialog too, then hit-test a real reservation button.
+ await p.locator('[data-appearance-open]').click();await p.locator('[data-appearance-close]').click();await p.locator('#nav a[href="#reservations"]').click();const firstReservation=p.locator('[data-open=detail]').first();await firstReservation.click();await p.waitForSelector('#modal[open]');await p.locator('#close-modal').click();
+
 
  await p.locator('[data-appearance-open]').click();await p.locator('#appearance-radius').fill('30');await p.locator('#appearance-save').click();assert.equal(await p.evaluate(()=>document.documentElement.style.getPropertyValue('--appearance-radius')),'30px');await p.locator('[data-appearance-close]').click();await p.locator('header [data-appearance-toggle]').click();assert.equal(await p.evaluate(()=>document.documentElement.dataset.appearance),'light');await p.locator('header [data-appearance-toggle]').click();
  const pages=[];

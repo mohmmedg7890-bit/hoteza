@@ -81,7 +81,7 @@ function render(){
  } else if(page==='profile'){
  h=head(title,'إدارة حسابك',openBtn('تغيير كلمة المرور','profile'))+`<div class="card"><h2>${esc(S.user)}</h2><p>الصلاحية: ${labels[S.role]}</p><p>المنشأة: ${esc(S.property.name)}</p></div>`;
  } else h=head('الصفحة غير موجودة','اختر إحدى الصفحات من القائمة');
- $('#page').innerHTML=h;$('#page').animate?.([{opacity:.5,transform:'translateY(5px)'},{opacity:1,transform:'translateY(0)'}],{duration:matchMedia('(prefers-reduced-motion: reduce)').matches?0:180});updateExportLinks();
+ $('#page').innerHTML=h;updateExportLinks();
 }
 function field(name,label,type='text',value='',options=null,required=true){return `<label>${label}${options?`<select name="${name}" ${required?'required':''}>${options.map(([v,l])=>`<option value="${esc(v)}" ${String(v)===String(value)?'selected':''}>${esc(l)}</option>`).join('')}</select>`:`<input name="${name}" type="${type}" value="${esc(value)}" ${required?'required':''} ${type==='number'?'step="0.01" min="0"':''}>`}</label>`}
 function timeOptions(current){const values=Array.from({length:48},(_,i)=>String(Math.floor(i/2)).padStart(2,'0')+':'+(i%2?'30':'00'));if(current&&!values.includes(current))values.push(current);return values.sort().map(v=>[v,v])}
