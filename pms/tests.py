@@ -28,7 +28,15 @@ class PMSCase(TestCase):
         cls.g=Guest.objects.create(property=cls.p,name='نزيل تجريبي',phone='0500000000',email='guest@example.com',region='عسير',city='أبها',street='شارع الاختبار')
         cls.h=Guest.objects.create(property=cls.q,name='سري في منشأة ب')
     def setUp(self):self.today=timezone.localdate();self.client.force_login(self.owner)
-    def op(self,action,d,user=None,key=None):return perform(user or self.owner,self.p.pk,action,d,key or str(uuid.uuid4()))
+    def op(self,action,d,user=None,key=None):
+        actor=user or self.owner;key=key or str(uuid.uuid4())
+        if action=='checkout':
+            from .checkout import preview
+            cache=getattr(self,'checkout_payloads',{});self.checkout_payloads=cache
+            if key in cache:d=cache[key]
+            else:
+                plan=preview(actor,self.p.pk,d['id']);d={**d,'settlement_ack':True,'settlement_digest':plan['digest'],'settlement_mode':'debt' if d.get('allow_debt') else 'none','debt_reason':'اعتماد مديونية للاختبار فقط'};cache[key]=d
+        return perform(actor,self.p.pk,action,d,key)
     def book(self,**kw):
         d={'guest':self.g.pk,'unit':self.u.pk,'arrival':str(self.today),'departure':str(self.today+timedelta(days=3)),'rate':'150','persons':2};d.update(kw)
         return Reservation.objects.get(pk=self.op('reservation_create',d)['id'])

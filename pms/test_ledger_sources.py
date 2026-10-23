@@ -26,7 +26,10 @@ class PostingSourceTests(TestCase):
         result=self.op('payment',{'id':self.r.pk,'amount':str(amount),'method':method});p=Payment.objects.get(pk=result['payment'])
         if when:Payment.objects.filter(pk=p.pk).update(created_at=timezone.now()-timedelta(days=when));p.refresh_from_db()
         return p
-    def close(self,debt=False):self.op('checkout',{'id':self.r.pk,'allow_debt':debt});self.r.refresh_from_db()
+    def close(self,debt=False):
+        from .checkout import preview as checkout_preview
+        plan=checkout_preview(self.owner,self.p.pk,self.r.pk)
+        self.op('checkout',{'id':self.r.pk,'settlement_ack':True,'settlement_digest':plan['digest'],'settlement_mode':'debt' if debt else 'none','debt_reason':'اعتماد مديونية لاختبار الترحيل'});self.r.refresh_from_db()
     def post(self,kind,pk):
         plan=preview(self.owner,self.p.pk,kind,pk);return apply(self.owner,self.p.pk,kind,pk,plan['digest'])
     def balances(self):

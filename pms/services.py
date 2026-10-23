@@ -204,11 +204,14 @@ def perform(user, prop_id, action, d, key):
         elif action == 'checkout':
             require(r.status=='checked_in','الحجز غير مسكن')
             require(timezone.localdate()>=r.departure or (member.role=='owner' and d.get('allow_same_day') is True and timezone.localdate()==r.arrival and r.departure==r.arrival+timedelta(days=1)),'المغادرة المبكرة تتطلب تسوية الليالي أولًا بواسطة المالك؛ مغادرة نفس اليوم تحتسب ليلة واحدة')
-            require(balance(r)['balance']==0 or (member.role=='owner' and d.get('allow_debt') and balance(r)['balance']>0),'يجب تسوية الحساب أو اعتماد مديونية من المالك')
+            from .checkout import settle
+            settlement=settle(user,prop,r,d,key)
             if r.charges.filter(invoice__isnull=True).exists():
                 perform(user,prop.pk,'invoice',{'id':r.pk,'buyer':d.get('buyer',r.guest.name),'buyer_tax':d.get('buyer_tax',''),'buyer_address':d.get('buyer_address','')},hashlib.sha256((key+':checkout-invoice').encode()).hexdigest())
             result={'reservation':r.pk,'invoices':list(r.invoices.order_by('id').values_list('id',flat=True)),'checkout_document':r.pk}
             r.status='checked_out';r.checked_out_at=timezone.now();r.save()
+            record=Audit.objects.create(property=prop,user=user,action='checkout_settlement',details={'reservation':r.pk,**settlement,'invoices':result['invoices']})
+            result.update({'settlement':record.pk,'voucher':settlement['voucher']})
             for allocation in r.allocations.filter(end=r.departure).select_related('unit'):
                 allocation.unit.cleaning='dirty';allocation.unit.save()
         elif action == 'early_departure':

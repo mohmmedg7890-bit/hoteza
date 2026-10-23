@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.http import HttpResponse
 from django.utils import timezone
-from .models import Expense,Contract,Reservation, Invoice, Payment, Guest
+from .models import Expense,Contract,Reservation, Invoice, Payment, Guest,Audit
 from .services import RuleError, balance, report, day
 
 def cash(n):return f'{Decimal(n)/100:,.2f}'
@@ -41,6 +41,11 @@ def document_data(prop,kind,pk):
         if kind=='checkout' and r.status!='checked_out':raise RuleError('لم تسجل مغادرة هذا الحجز')
         b=balance(r)
         rows=[['المنشأة',prop.name],['الحجز',r.pk],['النزيل',r.guest.name],['الحالة',r.status],['الوصول',str(r.arrival)],['المغادرة',str(r.departure)],['المغادرة الفعلية',str(r.checked_out_at or '')],['قبل الضريبة',cash(b['net'])],['الضريبة',cash(b['tax'])],['الإجمالي',cash(b['total'])],['صافي المقبوض',cash(b['paid'])],['المتبقي',cash(b['balance'])],['الحركة','التاريخ','القيمة']]
+        if kind=='checkout':
+            settlement=Audit.objects.filter(property=prop,action='checkout_settlement',details__reservation=r.pk).order_by('-id').first()
+            if settlement:
+                s=settlement.details;before=s['before'];after=s['after']
+                rows[0:0]=[['رقم التسوية',f'SET-{settlement.pk}'],['تاريخ اعتماد التسوية',timezone.localtime(settlement.created_at).isoformat()],['طريقة التصفية',{'none':'حساب مسدد','collect':'تحصيل المتبقي','refund':'رد الزيادة','debt':'مديونية معتمدة'}.get(s['mode'],s['mode'])],['الليالي عند المغادرة',before['nights']],['المتبقي قبل التسوية',cash(before['balance'])],['المتبقي بعد التسوية',cash(after['balance'])],['سند التسوية',('PAY-'+str(s['voucher'])) if s.get('voucher') else 'لا يوجد حركة نقدية'],['سبب المديونية',s.get('reason','')]]
         rows += [[c.description,str(c.service_date),cash(c.net+c.tax)] for c in r.charges.all()]
         rows += [[('قبض ' if p.amount>0 else 'رد ')+p.method,timezone.localtime(p.created_at).isoformat(),cash(p.amount)] for p in r.payments.all()]
         return ('كشف حساب النزيل' if kind=='statement' else 'ملخص المغادرة والتسوية'),rows
