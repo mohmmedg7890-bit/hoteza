@@ -24,6 +24,15 @@ async function main(){
  const wait=()=>p.waitForTimeout(180);
  await p.goto('http://127.0.0.1:8771/');assert((await p.locator('#heroTitle').textContent()).includes('ضيافتك'));await p.locator('[data-modal=offerModal]').first().click();assert(await p.locator('#offerModal').isVisible());await p.locator('#offerModal .modal-close').click();await p.waitForFunction(()=>!document.querySelector('#offerModal').open);await p.goto('http://127.0.0.1:8771/login/');await p.locator('[name=username]').fill('demo-owner');await p.locator('[name=password]').fill(password);await p.getByRole('button',{name:'تسجيل الدخول',exact:true}).click();await p.waitForSelector('.metrics');
  assert.equal(await p.locator('#nav .nav-section').count(),3);
+ await p.locator('#nav a[href="#units"]').click();await p.waitForSelector('.board-grid');
+ assert((await p.locator('.board-room').count())>0);
+ await p.locator('[data-board-view=list]').click();assert(await p.locator('.room-board table').isVisible());
+ await p.locator('[data-board-view=grid]').click();await p.locator('[data-board-unit]').first().click();await p.waitForSelector('#modal[open]');await p.locator('#close-modal').click();
+ await p.locator('[data-board-clean=other]').click();await p.locator('[data-board-clean=all]').click();
+ await p.locator('[data-board-filter=vacant]').click();assert.equal(await p.locator('.board-room:not(.board-vacant)').count(),0);
+ const vacant=p.locator('.board-room [data-open=booking]').first();if(await vacant.count()){const unit=await vacant.getAttribute('data-unit');await vacant.click();await p.waitForSelector('#modal[open]');assert.equal(await p.locator('#modal [name=unit]').inputValue(),unit);await p.locator('#close-modal').click();}
+ await p.locator('[data-board-filter=all]').click();
+
  // Repeated modal closure must release pointer hit-testing; exercise real clicks, not evaluate(openForm).
  for(let i=0;i<3;i++){
   await p.locator('#nav a[href="#guests"]').click();await p.getByRole('button',{name:'إضافة نزيل',exact:true}).click();await p.locator('#close-modal').click();

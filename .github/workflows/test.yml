@@ -50,6 +50,7 @@ jobs:
           else
             npx playwright install chromium
           fi
+      - run: node tests/unit_board.cjs
       - run: node tests/browser_smoke.cjs
       - uses: actions/upload-artifact@v4
         if: always()
