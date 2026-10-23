@@ -17,3 +17,6 @@ button:active,.button:active{outline:2px solid #a855f7;outline-offset:2px}
 
 #appearance-dialog.appearance-page{position:static!important;transform:none!important;width:100%!important;max-width:900px!important;max-height:none!important;margin:24px auto!important;padding:28px;background:var(--glass-bg,#fff);color:var(--glass-ink,#172849);border:1px solid var(--glass-line,#ddd);border-radius:18px}
 #appearance-dialog.appearance-page[hidden]{display:none!important}
+
+button:not(.primary):hover,.button:not(.primary):hover{border-color:#a855f7;background:color-mix(in srgb,var(--glass-bg,#fff) 82%,#a855f7)}
+button:focus-visible,.button:focus-visible,.navitem:focus-visible{outline:3px solid #a855f7;outline-offset:3px}
