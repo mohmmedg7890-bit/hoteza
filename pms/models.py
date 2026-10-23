@@ -210,3 +210,21 @@ class LedgerReconciliation(PostedModel):
     created_at=models.DateTimeField(auto_now_add=True)
     class Meta:
         constraints=[models.UniqueConstraint(fields=['property','account','reference'],name='reconciliation_reference_unique'),models.CheckConstraint(condition=Q(difference=models.F('actual_balance')-models.F('book_balance')),name='reconciliation_difference_valid')]
+
+class LedgerPeriodLock(PostedModel):
+    property=models.ForeignKey(Property,on_delete=models.PROTECT)
+    start=models.DateField()
+    end=models.DateField()
+    kind=models.CharField(max_length=8)
+    reason=models.CharField(max_length=250)
+    snapshot=models.JSONField(default=dict)
+    user=models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+    created_at=models.DateTimeField(auto_now_add=True)
+    class Meta:
+        constraints=[models.CheckConstraint(condition=Q(end__gt=models.F('start')),name='ledger_lock_positive_period')]
+
+class LedgerPeriodReopen(PostedModel):
+    lock=models.OneToOneField(LedgerPeriodLock,on_delete=models.PROTECT,related_name='reopening')
+    reason=models.CharField(max_length=250)
+    user=models.ForeignKey(settings.AUTH_USER_MODEL,on_delete=models.PROTECT)
+    created_at=models.DateTimeField(auto_now_add=True)

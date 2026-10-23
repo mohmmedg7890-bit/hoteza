@@ -60,6 +60,8 @@ def post(user,prop_id,*,source,entry_date,description,lines,reversal_of=None):
     prior=JournalEntry.objects.filter(property=prop,source=source.strip()).first()
     if prior:
         require(prior.digest==digest,'مرجع المصدر مستخدم لقيد مختلف');return prior
+    from .periods import writable
+    writable(prop,dt)
     sequence=(JournalEntry.objects.filter(property=prop).aggregate(n=Max('sequence'))['n'] or 0)+1
     total=sum(x['debit'] for x in normalized)
     entry=JournalEntry.objects.create(property=prop,sequence=sequence,date=dt,description=description.strip(),source=source.strip(),digest=digest,currency=prop.currency,debit_total=total,credit_total=total,reversal_of=reversal_of,user=user)

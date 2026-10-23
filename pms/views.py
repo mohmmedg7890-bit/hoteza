@@ -180,6 +180,8 @@ def ledger_view(request):
     result=trial_balance(request.user,m.property_id,start,end)
     from .reconciliation import state as reconciliation_state
     result.update(reconciliation_state(request.user,m.property_id,start,end))
+    from .periods import state as period_state
+    result["period_locks"]=period_state(request.user,m.property_id)
     result['entries']=[{'id':e.pk,'sequence':e.sequence,'date':str(e.date),'description':e.description,'source':e.source,'currency':e.currency,'total':e.debit_total,'reversal_of':e.reversal_of_id,'reversed':hasattr(e,'reversal'),'lines':[{'account':l.account.code,'debit':l.debit,'credit':l.credit,'reservation':l.reservation_id} for l in e.lines.all()]} for e in JournalEntry.objects.filter(property_id=m.property_id,date__gte=start,date__lt=end).select_related('reversal').prefetch_related('lines__account').order_by('-sequence')[:200]]
     response=JsonResponse(result);response['Cache-Control']='private, no-store';return response
 

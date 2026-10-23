@@ -76,6 +76,9 @@ def preview(user,prop_id,kind,pk):
             same=current==plan['lines'] and str(previous.date)==plan['entry_date'] and previous.description==plan['description'] and previous.currency==prop.currency
             plan['journal']=previous.pk
             plan['status']='existing' if same and not hasattr(previous,'reversal') else 'conflict'
+        if plan['status']=='new':
+            from .periods import writable
+            writable(prop,date.fromisoformat(plan['entry_date']))
     body={'property':prop.pk,'currency':prop.currency,'kind':kind,'id':str(pk),'entries':sorted(plans,key=lambda p:(p['entry_date'],p['source']))}
     digest=hashlib.sha256(json.dumps(body,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
     return {**body,'digest':digest,'new':sum(x['status']=='new' for x in plans),'conflicts':sum(x['status']=='conflict' for x in plans),'notice':'ترحيل داخلي تجريبي حسب تاريخ الخدمة وتاريخ السند. القبض مقدمات حتى تخصيصه، والبطاقات مستحقات حتى التسوية. ليست معالجة ضريبية معتمدة أو إقفالًا شاملًا.'}
